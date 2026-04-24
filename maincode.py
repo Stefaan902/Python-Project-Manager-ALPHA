@@ -24,6 +24,10 @@ import numpy as np
 import networkx as nx
 
 
+import json
+from PyQt5.QtWidgets import QFileDialog
+
+
 
 class ActivityTableModel(QAbstractTableModel):
     def __init__(self, parent=None):
@@ -185,7 +189,6 @@ class ActivityTableModel(QAbstractTableModel):
                 top_index = self.index(parent_row, 3)
                 bottom_index = self.index(parent_row, 5)
                 self.dataChanged.emit(top_index, bottom_index, [Qt.DisplayRole])
-
 
 
 class ResourceTableModel(QAbstractTableModel):
@@ -513,6 +516,7 @@ class RBSWidget(QWidget):
         # Fit the view to all items
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
 
+
 class RiskTableModel(QAbstractTableModel):
     def __init__(self, activity_model, parent=None):
         super().__init__(parent)
@@ -601,8 +605,6 @@ class RiskTableModel(QAbstractTableModel):
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
     
-
-
 
 class AssignedActivityDelegate(QStyledItemDelegate):
     def __init__(self, activity_model, parent=None):
@@ -747,7 +749,6 @@ class BillOfQuantityTableModel(QAbstractTableModel):
         except (ValueError, TypeError):
             total = ""
         self._data[row][8] = total
-
 
 
 class IntegrationTableModel(QAbstractTableModel):
@@ -1107,7 +1108,6 @@ class IntegrationTableModel(QAbstractTableModel):
         return True
 
 
-
 class AssignmentDialog(QDialog):
     def __init__(self, parent=None, title="Assign Items", items=None):
         super().__init__(parent)
@@ -1157,6 +1157,7 @@ class AssignmentDialog(QDialog):
         for item in self.list_widget.selectedItems():
             selected_ids.append(item.data(Qt.UserRole))
         return selected_ids
+
 
 class IntegrationTab(QWidget):
     def __init__(self, integration_model, activity_model, resource_model, risk_model, boq_model, parent=None):
@@ -1452,8 +1453,6 @@ class IntegrationTab(QWidget):
         self.integration_model.refresh_relationships()
 
 
-
-
 class UnitDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         if index.column() == 2:  # Unit of Measurement column
@@ -1476,6 +1475,7 @@ class UnitDelegate(QStyledItemDelegate):
             model.setData(index, editor.currentText(), Qt.EditRole)
         else:
             super().setModelData(editor, model, index)
+
 
 class DynamicArrow(QGraphicsLineItem):
 
@@ -1519,7 +1519,6 @@ class DynamicArrow(QGraphicsLineItem):
         arrow_head = QPolygonF([dest, arrow_p1, arrow_p2])
         painter.setBrush(Qt.black)
         painter.drawPolygon(arrow_head)
-
 
 
 class WBSWidget(QWidget):
@@ -1631,7 +1630,6 @@ class WBSWidget(QWidget):
 
         # Fit the view to all items
         self.view.fitInView(self.scene.sceneRect(), Qt.KeepAspectRatio)
-
 
 
 class ActivityTableApp(QMainWindow):
@@ -1997,6 +1995,7 @@ class ActivityTableApp(QMainWindow):
         if hasattr(self, 'rbs_widget'):
             self.rbs_widget.refresh()
 
+
     def outdent_resource(self):
         selected_rows = sorted(set(index.row() for index in self.resources_view.selectedIndexes()))
         for row in selected_rows:
@@ -2018,7 +2017,6 @@ class ActivityTableApp(QMainWindow):
         # Refresh RBS diagram if it exists
         if hasattr(self, 'rbs_widget'):
             self.rbs_widget.refresh()
-
 
 
     def indent_selected(self):
@@ -2070,6 +2068,7 @@ class ActivityTableApp(QMainWindow):
         self.update_gantt_chart()
         self.activity_model.layoutChanged.emit()
 
+
     def toggle_selected_group(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
         for row in selected_rows:
@@ -2077,11 +2076,13 @@ class ActivityTableApp(QMainWindow):
                 self.activity_model.expanded_states[row] = not self.activity_model.expanded_states[row]
                 self.update_visible_rows()
 
+
     def handle_double_click(self, index):
         row = index.row()
         if row in self.activity_model.parent_child_map:
             self.activity_model.expanded_states[row] = not self.activity_model.expanded_states[row]
             self.update_visible_rows()
+
 
     def update_visible_rows(self):
         for parent_row, children in self.activity_model.parent_child_map.items():
@@ -2123,6 +2124,7 @@ class ActivityTableApp(QMainWindow):
         self.update_gantt_chart()
         self.activity_model.layoutChanged.emit()
 
+
     def outdent_selected(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
         for row in selected_rows:
@@ -2146,6 +2148,24 @@ class ActivityTableApp(QMainWindow):
 #######PART 2 CORRECTED CONTINUE TO PART 3 FROM HERE AND DOWN
     def create_menu_bar(self):
         menubar = self.menuBar()
+        
+        file_menu = menubar.addMenu("File")
+
+        save_action = QAction("Save Project", self)
+        save_action.triggered.connect(self.save_project_to_json)
+        file_menu.addAction(save_action)
+
+        load_action = QAction("Load Project", self)
+        load_action.triggered.connect(self.load_project_from_json)
+        file_menu.addAction(load_action)
+
+        file_menu.addSeparator()
+
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+
         view_menu = menubar.addMenu('View')
 
         table_action = QAction('Table View', self)
@@ -2164,6 +2184,7 @@ class ActivityTableApp(QMainWindow):
         pert_action.triggered.connect(lambda: self.tabs.setCurrentWidget(self.pert_tab))
         view_menu.addAction(pert_action)
 
+
     def setup_gantt_chart(self):
         self.gantt_figure = Figure(figsize=(12, 6))
         self.canvas = FigureCanvas(self.gantt_figure)
@@ -2176,6 +2197,7 @@ class ActivityTableApp(QMainWindow):
         self.gantt_layout.addWidget(refresh_btn)
 
         self.add_custom_zoom_buttons_gantt()
+
 
     def add_custom_zoom_buttons_gantt(self):
         zoom_controls_layout = QHBoxLayout()
@@ -2190,6 +2212,7 @@ class ActivityTableApp(QMainWindow):
 
         self.gantt_layout.addLayout(zoom_controls_layout)
 
+
     def setup_pert_chart(self):
         self.pert_figure = Figure(figsize=(12, 6))
         self.pert_canvas = FigureCanvas(self.pert_figure)
@@ -2202,6 +2225,7 @@ class ActivityTableApp(QMainWindow):
         self.pert_layout.addWidget(refresh_pert_btn)
 
         self.add_custom_zoom_buttons_pert()
+
 
     def add_custom_zoom_buttons_pert(self):
         zoom_controls_layout = QHBoxLayout()
@@ -2216,6 +2240,7 @@ class ActivityTableApp(QMainWindow):
 
         self.pert_layout.addLayout(zoom_controls_layout)
 
+
     def add_row(self):
         row_count = self.activity_model.rowCount()
         self.activity_model.insertRows(row_count, 1)
@@ -2224,6 +2249,7 @@ class ActivityTableApp(QMainWindow):
         self.calculate_cpm()
         self.update_gantt_chart()
         self.update_pert_chart()
+
 
     def remove_row(self):
         selected_indexes = self.table_view.selectedIndexes()
@@ -2242,10 +2268,12 @@ class ActivityTableApp(QMainWindow):
         self.update_gantt_chart()
         self.update_pert_chart()
 
+
     def add_resource(self):
         row_count = self.resource_model.rowCount()
         self.resource_model.insertRows(row_count, 1)
         self.update_resource_assigned_activity_delegate()
+
 
     def remove_resource(self):
         selected_indexes = self.resources_view.selectedIndexes()
@@ -2256,6 +2284,7 @@ class ActivityTableApp(QMainWindow):
         rows_to_remove = sorted(set(index.row() for index in selected_indexes), reverse=True)
         for row in rows_to_remove:
             self.resource_model.removeRows(row, 1)
+
 
     def on_data_changed(self, topLeft, bottomRight, roles):
         if not roles or Qt.EditRole in roles:
@@ -2274,6 +2303,7 @@ class ActivityTableApp(QMainWindow):
                 self.update_gantt_chart()
                 self.update_pert_chart()
         self.update_resource_assigned_activity_delegate()
+
 
     def calculate_end_date(self, row):
         try:
@@ -2335,6 +2365,7 @@ class ActivityTableApp(QMainWindow):
                         self.activity_model.dataChanged.emit(start_index, start_index, [Qt.DisplayRole])
                         self.calculate_end_date(row)
 
+
     def update_dependent_start_dates(self):
         for row in range(self.activity_model.rowCount()):
             predecessor_str = str(self.activity_model._data[row][2])  # Predecessor column
@@ -2368,6 +2399,7 @@ class ActivityTableApp(QMainWindow):
                             self.activity_model.dataChanged.emit(start_index, start_index, [Qt.DisplayRole])
                             self.calculate_end_date(row)
 
+
     def calculate_successors(self):
         for row in range(self.activity_model.rowCount()):
             current_id = str(row + 1)
@@ -2385,6 +2417,7 @@ class ActivityTableApp(QMainWindow):
             self.activity_model._data[row][6] = successors_text
             successor_index = self.activity_model.index(row, 6)
             self.activity_model.dataChanged.emit(successor_index, successor_index, [Qt.DisplayRole])
+
 
     def calculate_cpm(self):
         # Initialize data structures
@@ -2576,7 +2609,6 @@ class ActivityTableApp(QMainWindow):
         self.risk_web_view.setHtml(html)
 
 
-
     def show_context_menu(self, position):
         menu = QMenu()
 
@@ -2591,6 +2623,7 @@ class ActivityTableApp(QMainWindow):
             self.paste_cells()
         elif action == delete_action:
             self.delete_cells()
+
 
     def copy_cells(self):
         selected_indexes = self.table_view.selectionModel().selectedIndexes()
@@ -2619,7 +2652,6 @@ class ActivityTableApp(QMainWindow):
         # Set clipboard
         clipboard = QApplication.clipboard()
         clipboard.setText(clipboard_text.strip())
-
 
 
     def paste_cells(self):
@@ -2667,8 +2699,6 @@ class ActivityTableApp(QMainWindow):
         self.update_pert_chart()
 
 
-
-
     def delete_cells(self):
         selected_indexes = self.table_view.selectionModel().selectedIndexes()
         if not selected_indexes:
@@ -2682,7 +2712,6 @@ class ActivityTableApp(QMainWindow):
                 self.activity_model.setData(index, QDateTime.currentDateTime(), Qt.EditRole)
             else:
                 self.activity_model.setData(index, "", Qt.EditRole)
-
 
 
     def update_gantt_chart(self):
@@ -2793,7 +2822,6 @@ class ActivityTableApp(QMainWindow):
         ax.invert_yaxis()
         
         self.canvas.draw()
-
 
 
     def add_custom_zoom_buttons_gantt(self):
@@ -3044,8 +3072,6 @@ class ActivityTableApp(QMainWindow):
             self.pert_canvas.draw()
 
 
-
-
     def zoom_in_gantt(self):
         if not self.gantt_figure.axes:
             return
@@ -3057,6 +3083,7 @@ class ActivityTableApp(QMainWindow):
         ax.set_xlim(center - new_width / 2, center + new_width / 2)
         self.canvas.draw()
 
+
     def zoom_out_gantt(self):
         if not self.gantt_figure.axes:
             return
@@ -3067,6 +3094,7 @@ class ActivityTableApp(QMainWindow):
         center = (x_max + x_min) / 2
         ax.set_xlim(center - new_width / 2, center + new_width / 2)
         self.canvas.draw()
+
 
     def zoom_in_pert(self):
         if not self.pert_figure.axes:
@@ -3083,6 +3111,7 @@ class ActivityTableApp(QMainWindow):
         ax.set_ylim(center_y - new_height / 2, center_y + new_height / 2)
         self.pert_canvas.draw()
 
+
     def zoom_out_pert(self):
         if not self.pert_figure.axes:
             return
@@ -3098,9 +3127,11 @@ class ActivityTableApp(QMainWindow):
         ax.set_ylim(center_y - new_height / 2, center_y + new_height / 2)
         self.pert_canvas.draw()
 
+
     def add_bill_row(self):
         row_count = self.bill_model.rowCount()
         self.bill_model.insertRows(row_count, 1)
+
 
     def remove_bill_row(self):
         selected_indexes = self.bill_view.selectedIndexes()
@@ -3110,6 +3141,108 @@ class ActivityTableApp(QMainWindow):
         rows_to_remove = sorted(set(index.row() for index in selected_indexes), reverse=True)
         for row in rows_to_remove:
             self.bill_model.removeRows(row, 1)    
+
+
+    def save_project_to_json(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save Project", "", "Project Files (*.json)"
+        )
+        if not filename:
+            return
+
+        data = {
+            "activities": [
+                [qdatetime_to_str(v) for v in row]
+                for row in self.activity_model._data
+            ],
+            "activity_hierarchy": {
+                str(k): v for k, v in self.activity_model.parent_child_map.items()
+            },
+            "activity_indent": self.activity_model.indentation_levels,
+
+            "resources": self.resource_model._data,
+            "resource_hierarchy": {
+                str(k): v for k, v in self.resource_model.parent_child_map.items()
+            },
+            "resource_indent": self.resource_model.indentation_levels,
+
+            "risks": self.risk_model._data,
+            "boq": self.bill_model._data,
+
+            "integration": self.integration_model.relationships,
+        }
+
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+        QMessageBox.information(self, "Saved", "Project saved successfully.")
+
+
+    def recalculate_all_end_dates(self):
+        for row in range(self.activity_model.rowCount()):
+            self.calculate_end_date(row)
+
+
+    def load_project_from_json(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Load Project", "", "Project Files (*.json)"
+        )
+        if not filename:
+            return
+
+        with open(filename, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # ---- Activities ----
+        self.activity_model.beginResetModel()
+        self.activity_model._data = [
+            [str_to_qdatetime(v) for v in row]
+            for row in data.get("activities", [])
+        ]
+        self.activity_model.indentation_levels = data.get("activity_indent", [])
+        self.activity_model.parent_child_map = {
+            int(k): v for k, v in data.get("activity_hierarchy", {}).items()
+        }
+        self.activity_model.expanded_states = [True] * len(self.activity_model._data)
+        self.activity_model.endResetModel()
+
+        # ---- Resources ----
+        self.resource_model.beginResetModel()
+        self.resource_model._data = data.get("resources", [])
+        self.resource_model.indentation_levels = data.get("resource_indent", [])
+        self.resource_model.parent_child_map = {
+            int(k): v for k, v in data.get("resource_hierarchy", {}).items()
+        }
+        self.resource_model.expanded_states = [True] * len(self.resource_model._data)
+        self.resource_model.endResetModel()
+
+        # ---- Risks ----
+        self.risk_model.beginResetModel()
+        self.risk_model._data = data.get("risks", [])
+        self.risk_model.endResetModel()
+
+        # ---- BOQ ----
+        self.bill_model.beginResetModel()
+        self.bill_model._data = data.get("boq", [])
+        self.bill_model.endResetModel()
+
+        # ---- Integration ----
+        self.integration_model.relationships = data.get("integration", {})
+        self.integration_model.layoutChanged.emit()
+        
+        # ---- Recalculate derived values ----
+        self.recalculate_all_end_dates()
+        self.activity_model.recalc_parent_activities()
+        self.calculate_cpm()
+
+        # Refresh visuals
+        self.calculate_cpm()
+        self.update_gantt_chart()
+        self.update_pert_chart()
+        self.update_risk_matrix()
+
+        QMessageBox.information(self, "Loaded", "Project loaded successfully.")
+
 
 class GroupDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
@@ -3154,6 +3287,7 @@ class DateTimeDelegate(QStyledItemDelegate):
         else:
             super().setModelData(editor, index)
 
+
 class ResourceTypeDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         if index.column() == 1:  # Type of Resource column
@@ -3176,6 +3310,20 @@ class ResourceTypeDelegate(QStyledItemDelegate):
             model.setData(index, editor.currentText(), Qt.EditRole)
         else:
             super().setModelData(editor, index)
+
+
+def qdatetime_to_str(value):
+    if isinstance(value, QDateTime):
+        return value.toString("yyyy-MM-dd HH:mm")
+    return value
+
+def str_to_qdatetime(value):
+    if isinstance(value, str):
+        dt = QDateTime.fromString(value, "yyyy-MM-dd HH:mm")
+        if dt.isValid():
+            return dt
+    return value
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
