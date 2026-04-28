@@ -19,6 +19,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import math
 import numpy as np
 import networkx as nx
@@ -26,6 +27,7 @@ import networkx as nx
 
 import json
 from PyQt5.QtWidgets import QFileDialog
+import uuid
 
 
 
@@ -42,6 +44,7 @@ class ActivityTableModel(QAbstractTableModel):
         self.expanded_states = []
         self.parent_child_map = {}
     
+
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
@@ -61,8 +64,6 @@ class ActivityTableModel(QAbstractTableModel):
             return str(value)
         return None
     
-
-
 
     def rowCount(self, parent=None):
         return len(self._data)
@@ -110,6 +111,11 @@ class ActivityTableModel(QAbstractTableModel):
     def flags(self, index):
         if not index.isValid():
             return Qt.NoItemFlags
+        
+        column = index.column()
+
+        if column == 0:
+            return Qt.ItemIsEnabled | Qt.ItemIsSelectable
             
         column = index.column()
         # Make certain columns read-only
@@ -121,9 +127,9 @@ class ActivityTableModel(QAbstractTableModel):
     def insertRows(self, position, rows, parent=QModelIndex()):
         self.beginInsertRows(parent, position, position + rows - 1)
         for _ in range(rows):
-            empty_row = [""] * len(self.headers)
-            empty_row[self.datetime_column] = QDateTime.currentDateTime()
-            empty_row[4] = QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm")
+            activity_id = str(uuid.uuid4())
+            empty_row = [activity_id] + [""] * (len(self.headers) - 1)
+            empty_row[3] = QDateTime.currentDateTime()
             self._data.insert(position, empty_row)
             self.indentation_levels.insert(position, 0)
             self.expanded_states.insert(position, True)
@@ -1663,6 +1669,9 @@ class ActivityTableApp(QMainWindow):
         self.table_view = QTableView(self)
         self.table_view.setModel(self.activity_model)
         
+        # Hide internal UUID column
+        self.table_view.hideColumn(0)
+
         # Make headers resize properly
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
@@ -2420,116 +2429,98 @@ class ActivityTableApp(QMainWindow):
 
 
     def calculate_cpm(self):
-        # Initialize data structures
         activities = {}
+        id_to_row = {}
 
-        # Gather activity data
+        # ---- Build activity map ----
         for row in range(self.activity_model.rowCount()):
-            activity_id = str(row + 1)  # Convert row index to ID
-            duration_str = str(self.activity_model._data[row][5])  # Duration
-            predecessor_str = str(self.activity_model._data[row][2])  # Predecessor
+            row_data = self.activity_model._data[row]
+            activity_id = row_data[0]
+            id_to_row[activity_id] = row
 
             try:
-                duration = float(duration_str) if duration_str else 0.0 
+                duration = float(row_data[5]) if row_data[5] else 0.0
             except ValueError:
-                duration = 0
+                duration = 0.0
 
-            predecessors = [p.strip() for p in predecessor_str.split(";") if p.strip()]
+            predecessors = [
+                p.strip() for p in str(row_data[2]).split(";") if p.strip()
+            ]
 
             activities[activity_id] = {
-                'duration': duration,
-                'predecessors': predecessors,
-                'successors': [],
-                'early_start': 0,
-                'early_finish': 0,
-                'late_start': 0,
-                'late_finish': 0
+                "duration": duration,
+                "predecessors": predecessors,
+                "successors": [],
             }
 
-        # Determine successors
-        for activity_id, data in activities.items():
-            for predecessor_id in data['predecessors']:
-                if predecessor_id in activities:
-                    activities[predecessor_id]['successors'].append(activity_id)
+        # ---- Build successor lists ----
+        for aid, data in activities.items():
+            for pid in data["predecessors"]:
+                if pid in activities:
+                    activities[pid]["successors"].append(aid)
 
-        # Topological sort
-        sorted_activities = []
-        temp_mark = set()
-        perm_mark = set()
+        # ---- Topological sort with cycle detection ----
+        sorted_ids = []
+        temp = set()
+        perm = set()
 
-        def visit(n):
-            if n in perm_mark:
+        def visit(aid):
+            if aid in perm:
                 return
-            if n in temp_mark:
-                raise Exception("Cycle detected in dependencies.")
-            temp_mark.add(n)
-            for m in activities[n]['predecessors']:
-                if m in activities:
-                    visit(m)
-            temp_mark.remove(n)
-            perm_mark.add(n)
-            sorted_activities.append(n)
+            if aid in temp:
+                raise Exception("Cycle detected in activity dependencies.")
+            temp.add(aid)
+            for p in activities[aid]["predecessors"]:
+                if p in activities:
+                    visit(p)
+            temp.remove(aid)
+            perm.add(aid)
+            sorted_ids.append(aid)
 
         try:
-            for activity_id in activities:
-                if activity_id not in perm_mark:
-                    visit(activity_id)
+            for aid in activities:
+                if aid not in perm:
+                    visit(aid)
         except Exception as e:
             QMessageBox.critical(self, "CPM Error", str(e))
             return
 
-        # Forward pass - Calculate Early Start (ES) and Early Finish (EF)
-        es = {}
-        ef = {}
-        for activity_id in sorted_activities:
-            predecessors = activities[activity_id]['predecessors']
-            if not predecessors:
-                es[activity_id] = 0
-            else:
-                es[activity_id] = max(ef[p] for p in predecessors if p in ef) if predecessors else 0
-            ef[activity_id] = es[activity_id] + activities[activity_id]['duration']
+        # ---- Forward pass (ES / EF) ----
+        ES, EF = {}, {}
 
-        # Backward pass - Calculate Late Start (LS) and Late Finish (LF)
-        ls = {}
-        lf = {}
-        max_ef = max(ef.values()) if ef else 0
-        for activity_id in reversed(sorted_activities):
-            successors = activities[activity_id]['successors']
-            if not successors:
-                lf[activity_id] = max_ef
-            else:
-                lf[activity_id] = min(ls[s] for s in successors if s in ls)
-            ls[activity_id] = lf[activity_id] - activities[activity_id]['duration']
+        for aid in sorted_ids:
+            preds = activities[aid]["predecessors"]
+            ES[aid] = max((EF[p] for p in preds if p in EF), default=0)
+            EF[aid] = ES[aid] + activities[aid]["duration"]
 
-        # Update model with CPM calculations
-        for activity_id, data in activities.items():
-            row = int(activity_id) - 1
-            
-            # Update Early Start
-            self.activity_model._data[row][7] = es.get(activity_id, 0)  # Early Start
-            es_index = self.activity_model.index(row, 7)
-            self.activity_model.dataChanged.emit(es_index, es_index, [Qt.DisplayRole])
+        # ---- Backward pass (LS / LF) ----
+        project_duration = max(EF.values(), default=0)
+        LS, LF = {}, {}
 
-            # Update Early Finish
-            self.activity_model._data[row][8] = ef.get(activity_id, 0)  # Early Finish
-            ef_index = self.activity_model.index(row, 8)
-            self.activity_model.dataChanged.emit(ef_index, ef_index, [Qt.DisplayRole])
+        for aid in reversed(sorted_ids):
+            succs = activities[aid]["successors"]
+            LF[aid] = (
+                min(LS[s] for s in succs if s in LS)
+                if succs else project_duration
+            )
+            LS[aid] = LF[aid] - activities[aid]["duration"]
 
-            # Update Late Start
-            self.activity_model._data[row][9] = ls.get(activity_id, 0)  # Late Start
-            ls_index = self.activity_model.index(row, 9)
-            self.activity_model.dataChanged.emit(ls_index, ls_index, [Qt.DisplayRole])
+        # ---- Write results back to model ----
+        for aid in activities:
+            row = id_to_row[aid]
+            self.activity_model._data[row][7] = ES.get(aid, 0)
+            self.activity_model._data[row][8] = EF.get(aid, 0)
+            self.activity_model._data[row][9] = LS.get(aid, 0)
+            self.activity_model._data[row][10] = LF.get(aid, 0)
 
-            # Update Late Finish
-            self.activity_model._data[row][10] = lf.get(activity_id, 0)  # Late Finish
-            lf_index = self.activity_model.index(row, 10)
-            self.activity_model.dataChanged.emit(lf_index, lf_index, [Qt.DisplayRole])
+            # Update successors column for display
+            self.activity_model._data[row][6] = ";".join(
+                activities[aid]["successors"]
+            )
 
-            # Update Successors
-            successors_text = ";".join(activities[activity_id]['successors'])
-            self.activity_model._data[row][6] = successors_text
-            succ_index = self.activity_model.index(row, 6)
-            self.activity_model.dataChanged.emit(succ_index, succ_index, [Qt.DisplayRole])
+            top = self.activity_model.index(row, 7)
+            bottom = self.activity_model.index(row, 10)
+            self.activity_model.dataChanged.emit(top, bottom, [Qt.DisplayRole])
 
 
     def update_risk_matrix(self):
@@ -2849,11 +2840,6 @@ class ActivityTableApp(QMainWindow):
         ax = self.pert_figure.add_subplot(111)
         
         try:
-            import matplotlib.patches as patches
-            import networkx as nx
-            import math
-            import numpy as np
-            
             G = nx.DiGraph()
             node_data = {}
             valid_nodes = []
@@ -3151,24 +3137,38 @@ class ActivityTableApp(QMainWindow):
             return
 
         data = {
+            # ---------- FILE FORMAT VERSION ----------
+            # v1: row-based IDs (legacy)
+            # v2: GUID-based IDs (current)
+            "version": 2,
+
+            # ---------- ACTIVITIES ----------
+            # Column 0 contains the GUID (authoritative ID)
             "activities": [
                 [qdatetime_to_str(v) for v in row]
                 for row in self.activity_model._data
             ],
+
+            # UI hierarchy (row-based, NOT identity)
             "activity_hierarchy": {
                 str(k): v for k, v in self.activity_model.parent_child_map.items()
             },
-            "activity_indent": self.activity_model.indentation_levels,
+            "activity_indent": list(self.activity_model.indentation_levels),
 
+            # ---------- RESOURCES ----------
             "resources": self.resource_model._data,
             "resource_hierarchy": {
                 str(k): v for k, v in self.resource_model.parent_child_map.items()
             },
-            "resource_indent": self.resource_model.indentation_levels,
+            "resource_indent": list(self.resource_model.indentation_levels),
 
+            # ---------- RISKS ----------
             "risks": self.risk_model._data,
+
+            # ---------- BILL OF QUANTITY ----------
             "boq": self.bill_model._data,
 
+            # ---------- INTEGRATION (GUID-based references) ----------
             "integration": self.integration_model.relationships,
         }
 
@@ -3195,25 +3195,75 @@ class ActivityTableApp(QMainWindow):
 
         # ---- Activities ----
         self.activity_model.beginResetModel()
-        self.activity_model._data = [
-            [str_to_qdatetime(v) for v in row]
-            for row in data.get("activities", [])
-        ]
-        self.activity_model.indentation_levels = data.get("activity_indent", [])
-        self.activity_model.parent_child_map = {
-            int(k): v for k, v in data.get("activity_hierarchy", {}).items()
-        }
-        self.activity_model.expanded_states = [True] * len(self.activity_model._data)
+
+        # Restore activity data (GUIDs are in column 0 and must remain untouched)
+        self.activity_model._data = []
+        for row in data.get("activities", []):
+            loaded_row = [str_to_qdatetime(v) for v in row]
+
+            # ✅ CLEAR DERIVED CPM FIELDS (ES, EF, LS, LF)
+            for col in (7, 8, 9, 10):
+                if col < len(loaded_row):
+                    loaded_row[col] = ""
+
+            self.activity_model._data.append(loaded_row)
+
+
+        row_count = len(self.activity_model._data)
+
+        # Restore indentation safely
+        self.activity_model.indentation_levels = data.get(
+            "activity_indent", [0] * row_count
+        )[:row_count]
+
+        # Restore hierarchy (row-based, UI concern)
+        raw_hierarchy = data.get("activity_hierarchy", {})
+        self.activity_model.parent_child_map = {}
+
+        for parent_str, children in raw_hierarchy.items():
+            try:
+                parent = int(parent_str)
+            except ValueError:
+                continue
+
+            if 0 <= parent < row_count:
+                valid_children = [
+                    c for c in children
+                    if isinstance(c, int) and 0 <= c < row_count
+                ]
+                if valid_children:
+                    self.activity_model.parent_child_map[parent] = valid_children
+
+        self.activity_model.expanded_states = [True] * row_count
         self.activity_model.endResetModel()
 
         # ---- Resources ----
         self.resource_model.beginResetModel()
         self.resource_model._data = data.get("resources", [])
-        self.resource_model.indentation_levels = data.get("resource_indent", [])
-        self.resource_model.parent_child_map = {
-            int(k): v for k, v in data.get("resource_hierarchy", {}).items()
-        }
-        self.resource_model.expanded_states = [True] * len(self.resource_model._data)
+
+        res_row_count = len(self.resource_model._data)
+        self.resource_model.indentation_levels = data.get(
+            "resource_indent", [0] * res_row_count
+        )[:res_row_count]
+
+        raw_res_hierarchy = data.get("resource_hierarchy", {})
+        self.resource_model.parent_child_map = {}
+
+        for parent_str, children in raw_res_hierarchy.items():
+            try:
+                parent = int(parent_str)
+            except ValueError:
+                continue
+
+            if 0 <= parent < res_row_count:
+                valid_children = [
+                    c for c in children
+                    if isinstance(c, int) and 0 <= c < res_row_count
+                ]
+                if valid_children:
+                    self.resource_model.parent_child_map[parent] = valid_children
+
+        self.resource_model.expanded_states = [True] * res_row_count
         self.resource_model.endResetModel()
 
         # ---- Risks ----
@@ -3226,17 +3276,16 @@ class ActivityTableApp(QMainWindow):
         self.bill_model._data = data.get("boq", [])
         self.bill_model.endResetModel()
 
-        # ---- Integration ----
+        # ---- Integration (GUID-based, no remapping needed) ----
         self.integration_model.relationships = data.get("integration", {})
         self.integration_model.layoutChanged.emit()
-        
-        # ---- Recalculate derived values ----
+
+        # ---- Recalculate derived values (CRITICAL ORDER) ----
         self.recalculate_all_end_dates()
         self.activity_model.recalc_parent_activities()
         self.calculate_cpm()
 
-        # Refresh visuals
-        self.calculate_cpm()
+        # ---- Refresh visuals ----
         self.update_gantt_chart()
         self.update_pert_chart()
         self.update_risk_matrix()
