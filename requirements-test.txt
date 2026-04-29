@@ -1,0 +1,12 @@
+# Test dependencies for the Project Manager PyQt5 application
+# Install with: pip install -r requirements-test.txt
+
+pytest>=7.4
+pytest-qt>=4.2
+
+# Already required by the application itself, listed here for completeness:
+# PyQt5>=5.15
+# matplotlib
+# plotly
+# networkx
+# numpy

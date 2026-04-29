@@ -68,20 +68,6 @@ class ActivityTableModel(QAbstractTableModel):
     def columnCount(self, parent=None):
         return len(self.headers)
 
-    def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
-            return None
-            
-        row = index.row()
-        column = index.column()
-        value = self._data[row][column]
-        
-        if role == Qt.DisplayRole or role == Qt.EditRole:
-            if column == self.datetime_column and isinstance(value, QDateTime):
-                return value.toString("yyyy-MM-dd HH:mm")
-            return str(value)
-            
-        return None
 
     def setData(self, index, value, role=Qt.EditRole):
         if not index.isValid():
@@ -114,7 +100,6 @@ class ActivityTableModel(QAbstractTableModel):
         if column == 0:
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable
             
-        column = index.column()
         # Make certain columns read-only
         if column in [4, 6, 7, 8, 9, 10]:  # End Date, Successors, and CPM columns (aka ES, EF, LS, LF)
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable
