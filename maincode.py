@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import QFileDialog
 import uuid
 
 
-
 class ActivityTableModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,7 +43,6 @@ class ActivityTableModel(QAbstractTableModel):
         self.expanded_states = []
         self.parent_child_map = {}
     
-
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid():
             return None
@@ -64,7 +62,6 @@ class ActivityTableModel(QAbstractTableModel):
             return str(value)
         return None
     
-
     def rowCount(self, parent=None):
         return len(self._data)
 
@@ -119,7 +116,7 @@ class ActivityTableModel(QAbstractTableModel):
             
         column = index.column()
         # Make certain columns read-only
-        if column in [4, 6, 7, 8, 9, 10]:  # End Date, Successors, and CPM columns
+        if column in [4, 6, 7, 8, 9, 10]:  # End Date, Successors, and CPM columns (aka ES, EF, LS, LF)
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable
             
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
@@ -1922,8 +1919,6 @@ class ActivityTableApp(QMainWindow):
             self.bill_model
         )
         self.tabs.addTab(self.integration_tab, "Integration View")
-        
-
 
 
         # Create menu bar
@@ -2077,7 +2072,6 @@ class ActivityTableApp(QMainWindow):
         self.update_gantt_chart()
         self.activity_model.layoutChanged.emit()
 
-
     def toggle_selected_group(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
         for row in selected_rows:
@@ -2085,20 +2079,17 @@ class ActivityTableApp(QMainWindow):
                 self.activity_model.expanded_states[row] = not self.activity_model.expanded_states[row]
                 self.update_visible_rows()
 
-
     def handle_double_click(self, index):
         row = index.row()
         if row in self.activity_model.parent_child_map:
             self.activity_model.expanded_states[row] = not self.activity_model.expanded_states[row]
             self.update_visible_rows()
 
-
     def update_visible_rows(self):
         for parent_row, children in self.activity_model.parent_child_map.items():
             is_expanded = self.activity_model.expanded_states[parent_row]
             for child_row in children:
                 self.table_view.setRowHidden(child_row, not is_expanded)
-
 
     def indent_selected(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
@@ -2147,6 +2138,7 @@ class ActivityTableApp(QMainWindow):
                         if not children:
                             del self.activity_model.parent_child_map[parent]
                         break
+
         # Recalculate any parent activities that might be affected by this change.
         self.activity_model.recalc_parent_activities()
 
@@ -2154,7 +2146,7 @@ class ActivityTableApp(QMainWindow):
         self.activity_model.layoutChanged.emit()
 
 
-#######PART 2 CORRECTED CONTINUE TO PART 3 FROM HERE AND DOWN
+###### PART 2 CORRECTED CONTINUE TO PART 3 FROM HERE AND DOWN
     def create_menu_bar(self):
         menubar = self.menuBar()
         
@@ -3365,6 +3357,7 @@ def qdatetime_to_str(value):
     if isinstance(value, QDateTime):
         return value.toString("yyyy-MM-dd HH:mm")
     return value
+
 
 def str_to_qdatetime(value):
     if isinstance(value, str):
