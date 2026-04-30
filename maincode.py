@@ -8,22 +8,19 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtWidgets import QAbstractItemView, QListWidgetItem, QListWidget
 from PyQt5.QtCore import Qt, QDateTime, QAbstractTableModel, QModelIndex, QVariant, QPointF, QLineF
-from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtGui import QPainter, QBrush, QColor, QPen, QFont, QKeySequence, QPolygonF
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView, QGraphicsRectItem, QGraphicsTextItem, QGraphicsLineItem
 from PyQt5.QtWidgets import QLineEdit, QLabel
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPainter, QBrush, QColor, QPen, QFont, QKeySequence, QPolygonF
 from PyQt5.QtWidgets import QGraphicsItem
 from datetime import datetime, timedelta
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import math
 import numpy as np
 import networkx as nx
-
 
 import json
 from PyQt5.QtWidgets import QFileDialog
@@ -34,11 +31,11 @@ class ActivityTableModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.headers = [
-            'ID', 'Name', 'Predecessor', 'Start Date', 'End Date', 'Duration',
+            'ID', 'Activity No', 'WBS ID', 'Name', 'Predecessor', 'Start Date', 'End Date', 'Duration',
             'Successors', 'Early Start', 'Early Finish', 'Late Start', 'Late Finish'
         ]
         self._data = []
-        self.datetime_column = 3  
+        self.datetime_column = 5  
         self.indentation_levels = [] 
         self.expanded_states = []
         self.parent_child_map = {}
@@ -50,12 +47,18 @@ class ActivityTableModel(QAbstractTableModel):
         row = index.row()
         column = index.column()
         value = self._data[row][column]
-        
+                
+        # ✅ Background color for summary (parent) tasks
+        if role == Qt.BackgroundRole:
+            if row in self.parent_child_map:
+                # Light blue background for summary tasks
+                return QBrush(QColor("#E3F2FD"))
+
         if role == Qt.DisplayRole:
-            if column == 1:  
+            if column == 3:  
                 indent_level = self.indentation_levels[row] if row < len(self.indentation_levels) else 0
                 return "  " * indent_level + str(value)
-            elif column == 3 and isinstance(value, QDateTime):  
+            elif column == 5 and isinstance(value, QDateTime):      # Start Date
                 return value.toString("yyyy-MM-dd HH:mm")
             return str(value)
         elif role == Qt.EditRole:
@@ -67,7 +70,6 @@ class ActivityTableModel(QAbstractTableModel):
 
     def columnCount(self, parent=None):
         return len(self.headers)
-
 
     def setData(self, index, value, role=Qt.EditRole):
         if not index.isValid():
@@ -95,15 +97,22 @@ class ActivityTableModel(QAbstractTableModel):
         if not index.isValid():
             return Qt.NoItemFlags
         
+        row = index.row()
         column = index.column()
 
-        if column == 0:
+        # System / read-only columns
+        if column in [0, 1, 2]:   # UUID, Activity No, WBS ID — all auto-managed
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable
             
         # Make certain columns read-only
-        if column in [4, 6, 7, 8, 9, 10]:  # End Date, Successors, and CPM columns (aka ES, EF, LS, LF)
+        if column in [6, 8, 9, 10, 11, 12]:  # End Date, Successors, and CPM columns (aka ES, EF, LS, LF)
             return Qt.ItemIsEnabled | Qt.ItemIsSelectable
-            
+        
+        # ⛔ Duration of summary (parent) tasks must be read-only
+        if column == 7 and row in self.parent_child_map:
+            return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
 
     def insertRows(self, position, rows, parent=QModelIndex()):
@@ -111,7 +120,7 @@ class ActivityTableModel(QAbstractTableModel):
         for _ in range(rows):
             activity_id = str(uuid.uuid4())
             empty_row = [activity_id] + [""] * (len(self.headers) - 1)
-            empty_row[3] = QDateTime.currentDateTime()
+            empty_row[5] = QDateTime.currentDateTime()
             self._data.insert(position, empty_row)
             self.indentation_levels.insert(position, 0)
             self.expanded_states.insert(position, True)
@@ -152,16 +161,16 @@ class ActivityTableModel(QAbstractTableModel):
 
             for child_row in children:
                 child_data = self._data[child_row]
-                # Get child's start date (assumed stored as a QDateTime object in column 3)
-                start = child_data[3]
+                # Get child's start date (assumed stored as a QDateTime object in column 5)
+                start = child_data[5]
                 child_starts.append(start)
-                # End date is stored as a string in column 4; convert it back to QDateTime for comparison
-                end = QDateTime.fromString(child_data[4], "yyyy-MM-dd HH:mm")
+                # End date is stored as a string in column 6; convert it back to QDateTime for comparison
+                end = QDateTime.fromString(child_data[6], "yyyy-MM-dd HH:mm")
                 child_ends.append(end)
 
-                # Sum up durations from column 5 (if they can be converted to float, otherwise skip)
+                # Sum up durations from column 7 (if they can be converted to float, otherwise skip)
                 try:
-                    child_duration = float(child_data[5])
+                    child_duration = float(child_data[7])
                     total_duration += child_duration
                 except (ValueError, TypeError):
                     pass
@@ -170,13 +179,127 @@ class ActivityTableModel(QAbstractTableModel):
                 new_start = min(child_starts)
                 new_end = max(child_ends)
                 # Update parent's start date (column 3), end date (column 4) and duration (column 5)
-                self._data[parent_row][3] = new_start
-                self._data[parent_row][4] = new_end.toString("yyyy-MM-dd HH:mm")
-                self._data[parent_row][5] = total_duration
+                self._data[parent_row][5] = new_start
+                self._data[parent_row][6] = new_end.toString("yyyy-MM-dd HH:mm")
+                self._data[parent_row][7] = total_duration
                 # Emit a dataChanged signal so the view refreshes the parent's row
-                top_index = self.index(parent_row, 3)
-                bottom_index = self.index(parent_row, 5)
+                top_index = self.index(parent_row, 5)
+                bottom_index = self.index(parent_row, 7)
                 self.dataChanged.emit(top_index, bottom_index, [Qt.DisplayRole])
+    
+    def recalculate_activity_numbers(self):
+        """
+        Assign a sequential Activity Number (column 1) to every row.
+        The number is simply the 1-based position in the visible list,
+        matching what the user sees in the table.
+        Also triggers WBS ID recalculation.
+        """
+        for row in range(len(self._data)):
+            self._data[row][1] = str(row + 1)
+        self.recalculate_wbs_ids()
+        if self._data:
+            top = self.index(0, 1)
+            bottom = self.index(len(self._data) - 1, 2)
+            self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
+
+    def recalculate_wbs_ids(self):
+        """
+        Derive a dotted WBS ID (column 2) for every row from the
+        parent_child_map and indentation_levels.
+
+        Algorithm:
+        - Top-level rows (indentation == 0, no parent) get a single
+            counter: 1, 2, 3, …
+        - Each time a row becomes a child its counter resets within
+            its parent scope: parent "2" → children "2.1", "2.2", …
+        - Deeper nesting appends another segment: "2.1.1", "2.1.2", …
+
+        The implementation walks rows top-to-bottom, which is the same
+        order they appear in the table, so counters always reflect
+        display order.
+        """
+        n = len(self._data)
+        if n == 0:
+            return
+
+        # Build a child→parent lookup for fast traversal
+        child_to_parent = {}
+        for parent_row, children in self.parent_child_map.items():
+            for child_row in children:
+                child_to_parent[child_row] = parent_row
+
+        # sibling_counter[row] = how many siblings at the same parent
+        # have already been numbered before this row.
+        # We track per-parent counters as we walk top-to-bottom.
+        parent_child_counter = {}   # parent_row → next child counter
+
+        wbs_ids = [""] * n
+        topLevelCounter = 0
+        for row in range(n):
+            if row in child_to_parent:
+                parent_row = child_to_parent[row]
+                # Increment this parent's child counter
+                count = parent_child_counter.get(parent_row, 0) + 1
+                parent_child_counter[parent_row] = count
+                parent_wbs = wbs_ids[parent_row]
+                wbs_ids[row] = f"{parent_wbs}.{count}" if parent_wbs else str(count)
+            else:
+                # Top-level row — increment the top-level counter and assign that value
+                topLevelCounter += 1
+                wbs_ids[row] = str(topLevelCounter)
+
+        for row in range(n):
+            self._data[row][2] = wbs_ids[row]
+
+    def get_parent_row(self, child_row):
+        for parent_row, children in self.parent_child_map.items():
+            if child_row in children:
+                return parent_row
+        return None
+
+    def recalc_ancestors(self, start_row):
+        current = start_row
+        while True:
+            parent = self.get_parent_row(current)
+            if parent is None:
+                break
+
+            # Recalculate THIS parent based on its children
+            children = self.parent_child_map.get(parent, [])
+            if not children:
+                break
+
+            child_starts = []
+            child_ends = []
+            total_duration = 0.0
+
+            for child in children:
+                start = self._data[child][5]          # Start Date
+                end_str = self._data[child][6]        # End Date
+                dur = self._data[child][7]            # Duration
+
+                if isinstance(start, QDateTime):
+                    child_starts.append(start)
+
+                end_dt = QDateTime.fromString(end_str, "yyyy-MM-dd HH:mm")
+                if end_dt.isValid():
+                    child_ends.append(end_dt)
+
+                try:
+                    total_duration += float(dur)
+                except (ValueError, TypeError):
+                    pass
+
+            if child_starts and child_ends:
+                self._data[parent][5] = min(child_starts)
+                self._data[parent][6] = max(child_ends).toString("yyyy-MM-dd HH:mm")
+                self._data[parent][7] = days_between(self._data[parent][5], self._data[parent][6])  # duration is not the sum of child durations, but the number of days between the earliest start and latest end
+
+                top = self.index(parent, 5)
+                bottom = self.index(parent, 7)
+                self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
+
+            current = parent
 
 
 class ResourceTableModel(QAbstractTableModel):
@@ -521,7 +644,7 @@ class RiskTableModel(QAbstractTableModel):
             activity = self.activity_model._data[row]
             data.append([
                 activity[0],  # ID
-                activity[1],  # Name of Activity
+                activity[3],  # Name of Activity
                 "",           # Category of Risk
                 1,            # Default Probability
                 1,            # Default Impact
@@ -534,7 +657,7 @@ class RiskTableModel(QAbstractTableModel):
         self._data = [
             [
                 activity[0],  # ID
-                activity[1],  # Name of Activity
+                activity[3],  # Name of Activity
                 "",           # Default Category of Risk
                 1,            # Default Probability
                 1,            # Default Impact
@@ -604,7 +727,7 @@ class AssignedActivityDelegate(QStyledItemDelegate):
             editor = QComboBox(parent)
             editor.addItem("")  # Allow unassigned resources
             for row in range(self.activity_model.rowCount()):
-                activity_name = self.activity_model._data[row][1]  # Name column
+                activity_name = self.activity_model._data[row][3]  # Name column
                 if activity_name.strip():
                     editor.addItem(activity_name)
             return editor
@@ -861,18 +984,14 @@ class IntegrationTableModel(QAbstractTableModel):
             # Activity ID column
             if col == 0:
                 return activity[0]
-            # Activity Name column
             elif col == 1:
-                return activity[1]
-            # Duration column
+                return activity[3] if len(activity) > 3 else ""   # Name col 3
             elif col == 2:
-                return activity[2] if len(activity) > 2 else ""
-            # Start Date column
+                return activity[7] if len(activity) > 7 else ""   # Duration col 7
             elif col == 3:
-                return activity[3] if len(activity) > 3 else ""
-            # End Date column
+                return activity[5] if len(activity) > 5 else ""   # Start Date col 5
             elif col == 4:
-                return activity[4] if len(activity) > 4 else ""
+                return activity[6] if len(activity) > 6 else ""   # End Date col 6
             # Resources column
             elif col == 5:
                 activity_id = activity[0]
@@ -1565,7 +1684,7 @@ class WBSWidget(QWidget):
         # Create cells for each activity
         for row in range(num_rows):
             activity_id = self.activity_model._data[row][0]
-            activity_name = self.activity_model._data[row][1]
+            activity_name = self.activity_model._data[row][3]
             if not activity_name:  # Skip empty rows
                 continue
 
@@ -1573,7 +1692,10 @@ class WBSWidget(QWidget):
             if row < len(self.activity_model.indentation_levels):
                 indent_level = self.activity_model.indentation_levels[row]
 
-            cell_text = f"{activity_id}: {activity_name}"
+            # Show Activity No and Name for a cleaner label
+            act_no = self.activity_model._data[row][1]
+            wbs_id = self.activity_model._data[row][2]
+            cell_text = f"{wbs_id} {activity_name}" if wbs_id else f"{act_no} {activity_name}"
             x_pos = indent_level * horizontal_offset
             y_pos = row * (cell_height + vertical_spacing)
 
@@ -1624,7 +1746,6 @@ class ActivityTableApp(QMainWindow):
     def __init__(self):
         super().__init__()
         
-
         # Window setup
         self.setWindowTitle("Project Manager with CPM and Resources")
         self.setGeometry(100, 100, 1600, 800)
@@ -1651,7 +1772,7 @@ class ActivityTableApp(QMainWindow):
         self.table_view = QTableView(self)
         self.table_view.setModel(self.activity_model)
         
-        # Hide internal UUID column
+        # Hide internal UUID column only; Activity No (1) and WBS ID (2) are visible
         self.table_view.hideColumn(0)
 
         # Make headers resize properly
@@ -1665,7 +1786,7 @@ class ActivityTableApp(QMainWindow):
 
         # Set delegate for Start Date to use QDateTimeEdit
         self.date_delegate = DateTimeDelegate()
-        self.table_view.setItemDelegateForColumn(3, self.date_delegate)
+        self.table_view.setItemDelegateForColumn(5, self.date_delegate)
 
         # Add the group delegate
         self.group_delegate = GroupDelegate()
@@ -1813,7 +1934,6 @@ class ActivityTableApp(QMainWindow):
         # Add Risk Management Tab to QTabWidget
         self.tabs.addTab(self.risk_tab, "Risk Management")
 
-
         # Create Bill of Quantity Tab
         self.bill_tab = QWidget()
         self.bill_layout = QVBoxLayout(self.bill_tab)
@@ -1905,7 +2025,6 @@ class ActivityTableApp(QMainWindow):
         )
         self.tabs.addTab(self.integration_tab, "Integration View")
 
-
         # Create menu bar
         self.create_menu_bar()
 
@@ -1942,11 +2061,12 @@ class ActivityTableApp(QMainWindow):
         self.activity_model.rowsRemoved.connect(self.update_resource_assigned_activity_delegate)
         self.activity_model.headerDataChanged.connect(self.update_resource_assigned_activity_delegate)
 
+        # Calculate initial activity numbers and WBS IDs
+        self.activity_model.recalculate_activity_numbers()
 
     def toggle_layout(self):
         self.use_fruchterman = not self.use_fruchterman
         self.update_pert_chart()
-
 
     def indent_resource(self):
         selected_rows = sorted(set(index.row() for index in self.resources_view.selectedIndexes()))
@@ -1984,7 +2104,6 @@ class ActivityTableApp(QMainWindow):
         if hasattr(self, 'rbs_widget'):
             self.rbs_widget.refresh()
 
-
     def outdent_resource(self):
         selected_rows = sorted(set(index.row() for index in self.resources_view.selectedIndexes()))
         for row in selected_rows:
@@ -2006,7 +2125,6 @@ class ActivityTableApp(QMainWindow):
         # Refresh RBS diagram if it exists
         if hasattr(self, 'rbs_widget'):
             self.rbs_widget.refresh()
-
 
     def indent_selected(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
@@ -2038,7 +2156,6 @@ class ActivityTableApp(QMainWindow):
 
         self.update_gantt_chart()
         self.activity_model.layoutChanged.emit()
-
 
     def outdent_selected(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
@@ -2105,10 +2222,10 @@ class ActivityTableApp(QMainWindow):
 
         # Recalculate parent's activity parameters based on its new children.
         self.activity_model.recalc_parent_activities()
+        self.activity_model.recalculate_activity_numbers()
 
         self.update_gantt_chart()
         self.activity_model.layoutChanged.emit()
-
 
     def outdent_selected(self):
         selected_rows = sorted(set(index.row() for index in self.table_view.selectedIndexes()))
@@ -2126,10 +2243,10 @@ class ActivityTableApp(QMainWindow):
 
         # Recalculate any parent activities that might be affected by this change.
         self.activity_model.recalc_parent_activities()
+        self.activity_model.recalculate_activity_numbers()
 
         self.update_gantt_chart()
         self.activity_model.layoutChanged.emit()
-
 
 ###### PART 2 CORRECTED CONTINUE TO PART 3 FROM HERE AND DOWN
     def create_menu_bar(self):
@@ -2170,7 +2287,6 @@ class ActivityTableApp(QMainWindow):
         pert_action.triggered.connect(lambda: self.tabs.setCurrentWidget(self.pert_tab))
         view_menu.addAction(pert_action)
 
-
     def setup_gantt_chart(self):
         self.gantt_figure = Figure(figsize=(12, 6))
         self.canvas = FigureCanvas(self.gantt_figure)
@@ -2183,7 +2299,6 @@ class ActivityTableApp(QMainWindow):
         self.gantt_layout.addWidget(refresh_btn)
 
         self.add_custom_zoom_buttons_gantt()
-
 
     def add_custom_zoom_buttons_gantt(self):
         zoom_controls_layout = QHBoxLayout()
@@ -2198,7 +2313,6 @@ class ActivityTableApp(QMainWindow):
 
         self.gantt_layout.addLayout(zoom_controls_layout)
 
-
     def setup_pert_chart(self):
         self.pert_figure = Figure(figsize=(12, 6))
         self.pert_canvas = FigureCanvas(self.pert_figure)
@@ -2211,7 +2325,6 @@ class ActivityTableApp(QMainWindow):
         self.pert_layout.addWidget(refresh_pert_btn)
 
         self.add_custom_zoom_buttons_pert()
-
 
     def add_custom_zoom_buttons_pert(self):
         zoom_controls_layout = QHBoxLayout()
@@ -2226,16 +2339,15 @@ class ActivityTableApp(QMainWindow):
 
         self.pert_layout.addLayout(zoom_controls_layout)
 
-
     def add_row(self):
         row_count = self.activity_model.rowCount()
         self.activity_model.insertRows(row_count, 1)
         self.indentation_levels.append(0)
         self.original_names.append("")
+        self.activity_model.recalculate_activity_numbers()
         self.calculate_cpm()
         self.update_gantt_chart()
         self.update_pert_chart()
-
 
     def remove_row(self):
         selected_indexes = self.table_view.selectedIndexes()
@@ -2249,17 +2361,16 @@ class ActivityTableApp(QMainWindow):
             if row < len(self.indentation_levels):
                 del self.indentation_levels[row]
                 del self.original_names[row]
-
+        
+        self.activity_model.recalculate_activity_numbers()
         self.calculate_cpm()
         self.update_gantt_chart()
         self.update_pert_chart()
-
 
     def add_resource(self):
         row_count = self.resource_model.rowCount()
         self.resource_model.insertRows(row_count, 1)
         self.update_resource_assigned_activity_delegate()
-
 
     def remove_resource(self):
         selected_indexes = self.resources_view.selectedIndexes()
@@ -2271,30 +2382,33 @@ class ActivityTableApp(QMainWindow):
         for row in rows_to_remove:
             self.resource_model.removeRows(row, 1)
 
-
     def on_data_changed(self, topLeft, bottomRight, roles):
         if not roles or Qt.EditRole in roles:
             row = topLeft.row()
             column = topLeft.column()
             
-            if column in [2, 5]:  # Predecessor or Duration changed
+            if column in [4, 7]:  # Predecessor (col 4) or Duration (col 7) changed
                 self.calculate_end_date(row)
+                
+                # ✅ propagate upwards
+                self.activity_model.recalc_ancestors(row)
+
                 self.calculate_cpm()
                 self.update_gantt_chart()
                 self.update_pert_chart()
-            elif column == 3:  # Start Date changed
+            elif column == 5:  # Start Date changed
                 self.calculate_end_date(row)
                 self.update_dependent_start_dates()
                 self.calculate_cpm()
                 self.update_gantt_chart()
                 self.update_pert_chart()
+        
         self.update_resource_assigned_activity_delegate()
-
 
     def calculate_end_date(self, row):
         try:
-            start_date = self.activity_model._data[row][3]  # Start Date
-            duration_str = self.activity_model._data[row][5]  # Duration
+            start_date = self.activity_model._data[row][5]  # Start Date
+            duration_str = self.activity_model._data[row][7]  # Duration
             if isinstance(start_date, QDateTime) and duration_str:
                 try:
                     duration = int(duration_str)
@@ -2306,20 +2420,19 @@ class ActivityTableApp(QMainWindow):
                 if duration > 0:
                     start_datetime = start_date.toPyDateTime()
                     end_datetime = start_datetime + timedelta(days=duration)
-                    self.activity_model._data[row][4] = end_datetime.strftime("%Y-%m-%d %H:%M")
-                    end_date_index = self.activity_model.index(row, 4)
+                    self.activity_model._data[row][6] = end_datetime.strftime("%Y-%m-%d %H:%M")  # End Date col 6
+                    end_date_index = self.activity_model.index(row, 6)
                     self.activity_model.dataChanged.emit(end_date_index, end_date_index, [Qt.DisplayRole])
-                    
-                    # Update successor start dates safely.
-                    task_id = str(row + 1)
-                    self.update_successor_start_dates(task_id, end_datetime)
+
+                # Update successor start dates safely.
+                task_id = str(row + 1)
+                self.update_successor_start_dates(task_id, end_datetime)
         except Exception as e:
             print(f"Error in calculate_end_date (row {row}): {e}")
 
-
     def update_successor_start_dates(self, task_id, end_date):
         for row in range(self.activity_model.rowCount()):
-            predecessor_str = str(self.activity_model._data[row][2])  # Predecessor column
+            predecessor_str = str(self.activity_model._data[row][4])  # Predecessor column
             if predecessor_str and task_id in predecessor_str.split(';'):
                 predecessors = predecessor_str.split(';')
                 latest_end_date = end_date
@@ -2329,7 +2442,7 @@ class ActivityTableApp(QMainWindow):
                     if pred_id.strip():
                         try:
                             pred_row = int(pred_id.strip()) - 1
-                            pred_end_date_str = self.activity_model._data[pred_row][4]  # End Date
+                            pred_end_date_str = self.activity_model._data[pred_row][6]  # End Date
                             if pred_end_date_str:
                                 pred_end_date = datetime.strptime(pred_end_date_str, "%Y-%m-%d %H:%M")
                                 if pred_end_date > latest_end_date:
@@ -2338,7 +2451,7 @@ class ActivityTableApp(QMainWindow):
                             continue
 
                 # Update the start date
-                current_start = self.activity_model._data[row][3]  # Start Date
+                current_start = self.activity_model._data[row][5]  # Start Date
                 if isinstance(current_start, QDateTime):
                     current_start_py = current_start.toPyDateTime()
                     if latest_end_date > current_start_py:
@@ -2346,15 +2459,14 @@ class ActivityTableApp(QMainWindow):
                             latest_end_date.strftime("%Y-%m-%d %H:%M"),
                             "yyyy-MM-dd HH:mm"
                         )
-                        self.activity_model._data[row][3] = new_start
-                        start_index = self.activity_model.index(row, 3)
+                        self.activity_model._data[row][5] = new_start
+                        start_index = self.activity_model.index(row, 5)
                         self.activity_model.dataChanged.emit(start_index, start_index, [Qt.DisplayRole])
                         self.calculate_end_date(row)
 
-
     def update_dependent_start_dates(self):
         for row in range(self.activity_model.rowCount()):
-            predecessor_str = str(self.activity_model._data[row][2])  # Predecessor column
+            predecessor_str = str(self.activity_model._data[row][4])  # Predecessor column
             if predecessor_str:
                 predecessors = predecessor_str.split(';')
                 latest_end_date = None
@@ -2363,7 +2475,7 @@ class ActivityTableApp(QMainWindow):
                     if pred_id.strip():
                         try:
                             pred_row = int(pred_id.strip()) - 1
-                            pred_end_date_str = self.activity_model._data[pred_row][4]  # End Date
+                            pred_end_date_str = self.activity_model._data[pred_row][6]  # End Date
                             if pred_end_date_str:
                                 pred_end_date = datetime.strptime(pred_end_date_str, "%Y-%m-%d %H:%M")
                                 if latest_end_date is None or pred_end_date > latest_end_date:
@@ -2372,7 +2484,7 @@ class ActivityTableApp(QMainWindow):
                             continue
 
                 if latest_end_date:
-                    current_start = self.activity_model._data[row][3]  # Start Date
+                    current_start = self.activity_model._data[row][5]  # Start Date
                     if isinstance(current_start, QDateTime):
                         current_start_py = current_start.toPyDateTime()
                         if latest_end_date > current_start_py:
@@ -2380,11 +2492,10 @@ class ActivityTableApp(QMainWindow):
                                 latest_end_date.strftime("%Y-%m-%d %H:%M"),
                                 "yyyy-MM-dd HH:mm"
                             )
-                            self.activity_model._data[row][3] = new_start
-                            start_index = self.activity_model.index(row, 3)
+                            self.activity_model._data[row][5] = new_start
+                            start_index = self.activity_model.index(row, 5)
                             self.activity_model.dataChanged.emit(start_index, start_index, [Qt.DisplayRole])
                             self.calculate_end_date(row)
-
 
     def calculate_successors(self):
         for row in range(self.activity_model.rowCount()):
@@ -2394,16 +2505,15 @@ class ActivityTableApp(QMainWindow):
             # Find all tasks that have this task as a predecessor
             for other_row in range(self.activity_model.rowCount()):
                 if other_row != row:
-                    predecessor_str = str(self.activity_model._data[other_row][2])
+                    predecessor_str = str(self.activity_model._data[other_row][4])
                     if predecessor_str and current_id in predecessor_str.split(';'):
                         successors.append(str(other_row + 1))
 
             # Update Successors column
             successors_text = ';'.join(successors)
             self.activity_model._data[row][6] = successors_text
-            successor_index = self.activity_model.index(row, 6)
+            successor_index = self.activity_model.index(row, 8)
             self.activity_model.dataChanged.emit(successor_index, successor_index, [Qt.DisplayRole])
-
 
     def calculate_cpm(self):
         activities = {}
@@ -2416,12 +2526,12 @@ class ActivityTableApp(QMainWindow):
             id_to_row[activity_id] = row
 
             try:
-                duration = float(row_data[5]) if row_data[5] else 0.0
+                duration = float(row_data[7]) if row_data[7] else 0.0
             except ValueError:
                 duration = 0.0
 
             predecessors = [
-                p.strip() for p in str(row_data[2]).split(";") if p.strip()
+                p.strip() for p in str(row_data[4]).split(";") if p.strip()
             ]
 
             activities[activity_id] = {
@@ -2485,20 +2595,19 @@ class ActivityTableApp(QMainWindow):
         # ---- Write results back to model ----
         for aid in activities:
             row = id_to_row[aid]
-            self.activity_model._data[row][7] = ES.get(aid, 0)
-            self.activity_model._data[row][8] = EF.get(aid, 0)
-            self.activity_model._data[row][9] = LS.get(aid, 0)
-            self.activity_model._data[row][10] = LF.get(aid, 0)
+            self.activity_model._data[row][9] = ES.get(aid, 0)
+            self.activity_model._data[row][10] = EF.get(aid, 0)
+            self.activity_model._data[row][11] = LS.get(aid, 0)
+            self.activity_model._data[row][12] = LF.get(aid, 0)
 
             # Update successors column for display
-            self.activity_model._data[row][6] = ";".join(
+            self.activity_model._data[row][8] = ";".join(
                 activities[aid]["successors"]
             )
 
-            top = self.activity_model.index(row, 7)
-            bottom = self.activity_model.index(row, 10)
+            top = self.activity_model.index(row, 9)
+            bottom = self.activity_model.index(row, 12)
             self.activity_model.dataChanged.emit(top, bottom, [Qt.DisplayRole])
-
 
     def update_risk_matrix(self):
         # Define axis categories for the matrix
@@ -2576,7 +2685,6 @@ class ActivityTableApp(QMainWindow):
         html = fig.to_html(include_plotlyjs='cdn')
         self.risk_web_view.setHtml(html)
 
-
     def show_context_menu(self, position):
         menu = QMenu()
 
@@ -2591,7 +2699,6 @@ class ActivityTableApp(QMainWindow):
             self.paste_cells()
         elif action == delete_action:
             self.delete_cells()
-
 
     def copy_cells(self):
         selected_indexes = self.table_view.selectionModel().selectedIndexes()
@@ -2621,7 +2728,6 @@ class ActivityTableApp(QMainWindow):
         clipboard = QApplication.clipboard()
         clipboard.setText(clipboard_text.strip())
 
-
     def paste_cells(self):
         clipboard = QApplication.clipboard()
         text = clipboard.text()
@@ -2649,11 +2755,11 @@ class ActivityTableApp(QMainWindow):
                     if row >= self.activity_model.rowCount() or col >= self.activity_model.columnCount():
                         continue  # Skip if out of bounds
 
-                    if col in [4, 6, 7, 8, 9, 10]:
+                    if col in [0, 1, 2, 6, 8, 9, 10, 11, 12]:
                         continue  # Skip read-only columns
 
                     index = self.activity_model.index(row, col)
-                    if col == 3:  # Start Date column
+                    if col == 5:  # Start Date column
                         # Try to convert cell_text to QDateTime
                         date = QDateTime.fromString(cell_text, "yyyy-MM-dd HH:mm")
                         if date.isValid():
@@ -2666,7 +2772,6 @@ class ActivityTableApp(QMainWindow):
         self.update_gantt_chart()
         self.update_pert_chart()
 
-
     def delete_cells(self):
         selected_indexes = self.table_view.selectionModel().selectedIndexes()
         if not selected_indexes:
@@ -2674,13 +2779,12 @@ class ActivityTableApp(QMainWindow):
 
         for index in selected_indexes:
             col = index.column()
-            if col in [4, 6, 7, 8, 9, 10]:
+            if col in [0, 1, 2, 6, 8, 9, 10, 11, 12]:
                 continue  # Skip read-only columns
-            if col == 3:  # Start Date column
+            if col == 5:  # Start Date column
                 self.activity_model.setData(index, QDateTime.currentDateTime(), Qt.EditRole)
             else:
                 self.activity_model.setData(index, "", Qt.EditRole)
-
 
     def update_gantt_chart(self):
         self.gantt_figure.clear()
@@ -2703,13 +2807,13 @@ class ActivityTableApp(QMainWindow):
         end_dates = []
         
         for row in range(self.activity_model.rowCount()):
-            name = str(self.activity_model._data[row][1])
+            name = str(self.activity_model._data[row][3])
             if not name.strip():
                 continue
-            start_date = self.activity_model._data[row][3]
+            start_date = self.activity_model._data[row][5]
             if not isinstance(start_date, QDateTime):
                 continue
-            end_date_str = str(self.activity_model._data[row][4])
+            end_date_str = str(self.activity_model._data[row][6])
             if not end_date_str:
                 continue
             try:
@@ -2791,7 +2895,6 @@ class ActivityTableApp(QMainWindow):
         
         self.canvas.draw()
 
-
     def add_custom_zoom_buttons_gantt(self):
         zoom_controls_layout = QHBoxLayout()
         
@@ -2805,12 +2908,10 @@ class ActivityTableApp(QMainWindow):
 
         self.gantt_layout.addLayout(zoom_controls_layout)
 
-
     def update_resource_assigned_activity_delegate(self):
         # Update the Assigned Activity delegate to reflect current activities
         self.assigned_activity_delegate = AssignedActivityDelegate(self.activity_model)
         self.resources_view.setItemDelegateForColumn(7, self.assigned_activity_delegate)
-
 
     def update_pert_chart(self):
         self.pert_figure.clear()
@@ -2826,11 +2927,11 @@ class ActivityTableApp(QMainWindow):
             for row in range(self.activity_model.rowCount()):
                 activity_id = str(row + 1)
                 try:
-                    es = int(self.activity_model._data[row][7])
-                    ef = int(self.activity_model._data[row][8])
-                    ls = int(self.activity_model._data[row][9])
-                    lf = int(self.activity_model._data[row][10])
-                    name = str(self.activity_model._data[row][1])
+                    es = int(self.activity_model._data[row][9])     # ES
+                    ef = int(self.activity_model._data[row][10])    # EF
+                    ls = int(self.activity_model._data[row][11])    # LS
+                    lf = int(self.activity_model._data[row][12])    # LF
+                    name = str(self.activity_model._data[row][3])
                     
                     if not name.strip():
                         continue
@@ -2843,7 +2944,7 @@ class ActivityTableApp(QMainWindow):
                     if es == ls and ef == lf:
                         critical_path_nodes.append(activity_id)
                     
-                    predecessors = str(self.activity_model._data[row][2]).split(';')
+                    predecessors = str(self.activity_model._data[row][4]).split(';')
                     for pred in predecessors:
                         if pred.strip() and pred.strip() in valid_nodes:
                             G.add_edge(pred.strip(), activity_id)
@@ -3034,7 +3135,6 @@ class ActivityTableApp(QMainWindow):
             ax.axis('off')
             self.pert_canvas.draw()
 
-
     def zoom_in_gantt(self):
         if not self.gantt_figure.axes:
             return
@@ -3046,7 +3146,6 @@ class ActivityTableApp(QMainWindow):
         ax.set_xlim(center - new_width / 2, center + new_width / 2)
         self.canvas.draw()
 
-
     def zoom_out_gantt(self):
         if not self.gantt_figure.axes:
             return
@@ -3057,7 +3156,6 @@ class ActivityTableApp(QMainWindow):
         center = (x_max + x_min) / 2
         ax.set_xlim(center - new_width / 2, center + new_width / 2)
         self.canvas.draw()
-
 
     def zoom_in_pert(self):
         if not self.pert_figure.axes:
@@ -3074,7 +3172,6 @@ class ActivityTableApp(QMainWindow):
         ax.set_ylim(center_y - new_height / 2, center_y + new_height / 2)
         self.pert_canvas.draw()
 
-
     def zoom_out_pert(self):
         if not self.pert_figure.axes:
             return
@@ -3090,11 +3187,9 @@ class ActivityTableApp(QMainWindow):
         ax.set_ylim(center_y - new_height / 2, center_y + new_height / 2)
         self.pert_canvas.draw()
 
-
     def add_bill_row(self):
         row_count = self.bill_model.rowCount()
         self.bill_model.insertRows(row_count, 1)
-
 
     def remove_bill_row(self):
         selected_indexes = self.bill_view.selectedIndexes()
@@ -3104,7 +3199,6 @@ class ActivityTableApp(QMainWindow):
         rows_to_remove = sorted(set(index.row() for index in selected_indexes), reverse=True)
         for row in rows_to_remove:
             self.bill_model.removeRows(row, 1)    
-
 
     def save_project_to_json(self):
         filename, _ = QFileDialog.getSaveFileName(
@@ -3117,7 +3211,7 @@ class ActivityTableApp(QMainWindow):
             # ---------- FILE FORMAT VERSION ----------
             # v1: row-based IDs (legacy)
             # v2: GUID-based IDs (current)
-            "version": 2,
+            "version": 3,
 
             # ---------- ACTIVITIES ----------
             # Column 0 contains the GUID (authoritative ID)
@@ -3154,11 +3248,9 @@ class ActivityTableApp(QMainWindow):
 
         QMessageBox.information(self, "Saved", "Project saved successfully.")
 
-
     def recalculate_all_end_dates(self):
         for row in range(self.activity_model.rowCount()):
             self.calculate_end_date(row)
-
 
     def load_project_from_json(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -3178,8 +3270,10 @@ class ActivityTableApp(QMainWindow):
         for row in data.get("activities", []):
             loaded_row = [str_to_qdatetime(v) for v in row]
 
-            # ✅ CLEAR DERIVED CPM FIELDS (ES, EF, LS, LF)
-            for col in (7, 8, 9, 10):
+            # Clear derived fields so they are always freshly computed on load.
+            # Cols 1 & 2: Activity No and WBS ID (recalculated below)
+            # Cols 9-12:  ES, EF, LS, LF (recalculated by calculate_cpm)
+            for col in (1, 2, 9, 10, 11, 12):
                 if col < len(loaded_row):
                     loaded_row[col] = ""
 
@@ -3260,6 +3354,7 @@ class ActivityTableApp(QMainWindow):
         # ---- Recalculate derived values (CRITICAL ORDER) ----
         self.recalculate_all_end_dates()
         self.activity_model.recalc_parent_activities()
+        self.activity_model.recalculate_activity_numbers()   # Must run before CPM display
         self.calculate_cpm()
 
         # ---- Refresh visuals ----
@@ -3292,7 +3387,7 @@ class GroupDelegate(QStyledItemDelegate):
 
 class DateTimeDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
-        if index.column() == 3:  # Start Date column
+        if index.column() == 5:  # Start Date column
             editor = QDateTimeEdit(parent)
             editor.setDisplayFormat("yyyy-MM-dd HH:mm")
             editor.setCalendarPopup(True)
@@ -3300,7 +3395,7 @@ class DateTimeDelegate(QStyledItemDelegate):
         return super().createEditor(parent, option, index)
 
     def setEditorData(self, editor, index):
-        if index.column() == 3 and isinstance(editor, QDateTimeEdit):
+        if index.column() == 5 and isinstance(editor, QDateTimeEdit):
             date_str = index.model().data(index, Qt.EditRole)
             date = QDateTime.fromString(date_str, "yyyy-MM-dd HH:mm")
             editor.setDateTime(date)
@@ -3308,7 +3403,7 @@ class DateTimeDelegate(QStyledItemDelegate):
             super().setEditorData(editor, index)
 
     def setModelData(self, editor, model, index):
-        if index.column() == 3 and isinstance(editor, QDateTimeEdit):
+        if index.column() == 5 and isinstance(editor, QDateTimeEdit):
             model.setData(index, editor.dateTime(), Qt.EditRole)
         else:
             super().setModelData(editor, index)
@@ -3350,6 +3445,15 @@ def str_to_qdatetime(value):
         if dt.isValid():
             return dt
     return value
+
+
+def days_between(start: str, end: str) -> int | None:
+    FMT = "%Y-%m-%d %H:%M"
+
+    try:
+        return (datetime.strptime(end, FMT) - datetime.strptime(start, FMT)).days
+    except (ValueError, TypeError):
+        return None
 
 
 if __name__ == "__main__":
