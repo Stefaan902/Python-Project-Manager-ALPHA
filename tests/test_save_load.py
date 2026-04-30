@@ -56,9 +56,10 @@ def _patch_dialogs(monkeypatch, save_path):
     monkeypatch.setattr(QMessageBox, "information", _noop)
 
 
-def _make_activity_row(uid, name, pred, duration):
-    """Minimal 11-column activity row."""
-    return [uid, name, pred, "", "", duration, "", "", "", "", ""]
+def _make_activity_row(uid, name, pred, duration, actID="", wbsID=""):
+    """Return a minimal 13-element data row for ActivityTableModel."""
+    """[0]UUID [1]ActivityNo [2]WBS_ID [3]Name [4]Predecessor [5]StartDate [6]EndDate [7]Duration [8]Successors [9]ES [10]EF [11]LS [12]LF"""
+    return [uid, actID, wbsID, name, pred, "", "", duration, "", "", "", "", ""]
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +161,7 @@ class TestBasicRoundTrip:
         assert self.w.activity_model.rowCount() == 3
 
     def test_activity_names_preserved(self):
-        names = [self.w.activity_model._data[r][1] for r in range(3)]
+        names = [self.w.activity_model._data[r][3] for r in range(3)]
         assert names == ["Design", "Build", "Test"]
 
     def test_activity_uids_preserved(self):
@@ -168,16 +169,16 @@ class TestBasicRoundTrip:
         assert uids == ["ACT-A", "ACT-B", "ACT-C"]
 
     def test_activity_durations_preserved(self):
-        # Duration is stored as a string in column 5
-        assert self.w.activity_model._data[0][5] == "3"
-        assert self.w.activity_model._data[1][5] == "5"
-        assert self.w.activity_model._data[2][5] == "2"
+        # Duration is stored as a string in column 7
+        assert self.w.activity_model._data[0][7] == "3"
+        assert self.w.activity_model._data[1][7] == "5"
+        assert self.w.activity_model._data[2][7] == "2"
 
     def test_predecessor_preserved(self):
         # ACT-B's predecessor must still be ACT-A
-        assert self.w.activity_model._data[1][2] == "ACT-A"
+        assert self.w.activity_model._data[1][4] == "ACT-A"
         # ACT-C's predecessor must still be ACT-B
-        assert self.w.activity_model._data[2][2] == "ACT-B"
+        assert self.w.activity_model._data[2][4] == "ACT-B"
 
     # --- Resources ---
     def test_resource_count_preserved(self):
@@ -233,8 +234,8 @@ class TestCPMRecalculatedOnLoad:
         _populate_project(window)
 
         # Corrupt the CPM columns in the file by writing garbage before saving
-        window.activity_model._data[0][7] = 999   # ES — should be 0 after reload
-        window.activity_model._data[0][8] = 999   # EF — should be 3 after reload
+        window.activity_model._data[0][9] = 999   # ES — should be 0 after reload
+        window.activity_model._data[0][10] = 999   # EF — should be 3 after reload
         window.save_project_to_json()
 
         window.activity_model.beginResetModel()
@@ -244,32 +245,32 @@ class TestCPMRecalculatedOnLoad:
         self.d = window.activity_model._data
 
     def test_cpm_es_A(self):
-        assert self.d[0][7] == pytest.approx(0.0)
-
-    def test_cpm_ef_A(self):
-        assert self.d[0][8] == pytest.approx(3.0)
-
-    def test_cpm_ls_A(self):
         assert self.d[0][9] == pytest.approx(0.0)
 
-    def test_cpm_lf_A(self):
+    def test_cpm_ef_A(self):
         assert self.d[0][10] == pytest.approx(3.0)
 
+    def test_cpm_ls_A(self):
+        assert self.d[0][11] == pytest.approx(0.0)
+
+    def test_cpm_lf_A(self):
+        assert self.d[0][12] == pytest.approx(3.0)
+
     def test_cpm_es_B(self):
-        assert self.d[1][7] == pytest.approx(3.0)
+        assert self.d[1][9] == pytest.approx(3.0)
 
     def test_cpm_ef_B(self):
-        assert self.d[1][8] == pytest.approx(8.0)
+        assert self.d[1][10] == pytest.approx(8.0)
 
     def test_cpm_es_C(self):
-        assert self.d[2][7] == pytest.approx(8.0)
+        assert self.d[2][9] == pytest.approx(8.0)
 
     def test_cpm_ef_C(self):
-        assert self.d[2][8] == pytest.approx(10.0)
+        assert self.d[2][10] == pytest.approx(10.0)
 
     def test_stale_cpm_values_not_restored(self):
         """The corrupted ES=999 must NOT appear after a reload."""
-        assert self.d[0][7] != 999
+        assert self.d[0][9] != 999
 
 
 # ---------------------------------------------------------------------------
@@ -290,8 +291,8 @@ class TestJSONFileStructure:
     def test_version_key_present(self):
         assert "version" in self.saved
 
-    def test_version_is_2(self):
-        assert self.saved["version"] == 2
+    def test_version_is_3(self):
+        assert self.saved["version"] == 3
 
     def test_activities_key_present(self):
         assert "activities" in self.saved
@@ -372,22 +373,22 @@ class TestRobustness:
 
     def test_missing_activities_key_does_not_crash(
             self, window, tmp_json, monkeypatch):
-        self._load_raw(window, tmp_json, monkeypatch, {"version": 2})
+        self._load_raw(window, tmp_json, monkeypatch, {"version": 3})
         assert window.activity_model.rowCount() == 0
 
     def test_missing_resources_key_does_not_crash(
             self, window, tmp_json, monkeypatch):
         self._load_raw(window, tmp_json, monkeypatch,
-                       {"version": 2, "activities": []})
+                       {"version": 3, "activities": []})
         assert window.resource_model.rowCount() == 0
 
     def test_invalid_parent_index_in_hierarchy_skipped(
             self, window, tmp_json, monkeypatch):
         """A parent index beyond row count must be silently skipped."""
         payload = {
-            "version": 2,
+            "version": 3,
             "activities": [
-                ["ACT-A", "Design", "", "", "", "3", "", "", "", "", ""]
+                ["ACT-A", "", "", "Design", "", "", "", "3", "", "", "", "", ""]
             ],
             "activity_hierarchy": {"99": [0]},   # row 99 does not exist
             "activity_indent": [0],
@@ -408,10 +409,10 @@ class TestRobustness:
             self, window, tmp_json, monkeypatch):
         """A non-date string in a date column must not crash the loader."""
         payload = {
-            "version": 2,
+            "version": 3,
             "activities": [
-                # Column 3 is normally a datetime string; put garbage there
-                ["ACT-A", "Design", "", "NOT-A-DATE", "", "3",
+                # Column 5 is normally a datetime string; put garbage there
+                ["ACT-A", "", "", "Design", "", "NOT-A-DATE", "", "3",
                  "", "", "", "", ""]
             ],
             "activity_hierarchy": {},
@@ -429,7 +430,7 @@ class TestRobustness:
     def test_empty_activities_list_does_not_crash(
             self, window, tmp_json, monkeypatch):
         payload = {
-            "version": 2,
+            "version": 3,
             "activities": [],
             "activity_hierarchy": {},
             "activity_indent": [],
@@ -447,9 +448,9 @@ class TestRobustness:
             self, window, tmp_json, monkeypatch):
         """A non-integer parent key in the hierarchy must be skipped."""
         payload = {
-            "version": 2,
+            "version": 3,
             "activities": [
-                ["ACT-A", "Design", "", "", "", "3", "", "", "", "", ""]
+                ["ACT-A", "", "", "Design", "", "", "", "3", "", "", "", "", ""]
             ],
             "activity_hierarchy": {"not-an-int": [0]},
             "activity_indent": [0],

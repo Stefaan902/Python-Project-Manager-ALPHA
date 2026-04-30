@@ -28,15 +28,16 @@ Predecessor references use the UUID stored in column 0, NOT row numbers.
 """
 
 import pytest
-
+from maincode import days_between
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_row(uid, name="", pred="", duration="0"):
-    """Return a minimal 11-element data row for ActivityTableModel."""
-    return [uid, name, pred, "", "", duration, "", "", "", "", ""]
+def _make_row(uid, name="", pred="", duration="0", actID="", wbsID=""):
+    """Return a minimal 13-element data row for ActivityTableModel."""
+    """[0]UUID [1]ActivityNo [2]WBS_ID [3]Name [4]Predecessor [5]StartDate [6]EndDate [7]Duration [8]Successors [9]ES [10]EF [11]LS [12]LF"""
+    return [uid, actID, wbsID, name, pred, "", "", duration, "", "", "", "", ""]
 
 
 def _load_rows(window, rows):
@@ -60,11 +61,11 @@ def _cpm(window):
     for row in window.activity_model._data:
         uid = row[0]
         result[uid] = {
-            "ES": row[7],
-            "EF": row[8],
-            "LS": row[9],
-            "LF": row[10],
-            "successors": row[6],
+            "ES": row[9],
+            "EF": row[10],
+            "LS": row[11],
+            "LF": row[12],
+            "successors": row[8],
         }
     return result
 
@@ -457,7 +458,7 @@ class TestEmptyModel:
 
 class TestSuccessorWriteback:
     """
-    calculate_cpm also populates column 6 (successors) as a side effect.
+    calculate_cpm also populates column 8 (successors) as a side effect.
     Verify this separately for correctness.
     """
 
@@ -468,8 +469,8 @@ class TestSuccessorWriteback:
         ]
         _load_rows(window, rows)
         window.calculate_cpm()
-        # Column 6 of row 0 (A) must reference B
-        assert window.activity_model._data[0][6] == "B"
+        # Column 8 of row 0 (A) must reference B
+        assert window.activity_model._data[0][8] == "B"
 
     def test_leaf_has_empty_successors(self, window):
         rows = [
@@ -478,11 +479,11 @@ class TestSuccessorWriteback:
         ]
         _load_rows(window, rows)
         window.calculate_cpm()
-        # Column 6 of row 1 (B) must be empty
-        assert window.activity_model._data[1][6] == ""
+        # Column 8 of row 1 (B) must be empty
+        assert window.activity_model._data[1][8] == ""
 
     def test_multiple_successors_written(self, window):
-        """A has two successors (B and C); both must appear in col 6."""
+        """A has two successors (B and C); both must appear in col 8."""
         rows = [
             _make_row("A", "A", "",  "1"),
             _make_row("B", "B", "A", "2"),
@@ -490,6 +491,190 @@ class TestSuccessorWriteback:
         ]
         _load_rows(window, rows)
         window.calculate_cpm()
-        successors = window.activity_model._data[0][6].split(";")
+        successors = window.activity_model._data[0][8].split(";")
         assert "B" in successors
         assert "C" in successors
+
+"""
+test_days_between.py — Unit tests for the days_between() utility function.
+
+Paste the implementation under test at the top of this file, or import it
+from wherever you define it in your project, e.g.:
+
+    from project_manager import days_between
+
+The implementation assumed here:
+
+    from datetime import datetime
+
+    FMT = "%Y-%m-%d %H:%M"
+
+    def days_between(start: str, end: str) -> int | None:
+        try:
+            return (datetime.strptime(end, FMT) - datetime.strptime(start, FMT)).days
+        except (ValueError, TypeError):
+            return None
+"""
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 1. Normal positive differences
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestPositiveDifference:
+
+    def test_exactly_one_day(self, window):
+        assert days_between("2025-01-01 00:00", "2025-01-02 00:00") == 1
+
+    def test_exactly_one_week(self, window):
+        assert days_between("2025-01-01 00:00", "2025-01-08 00:00") == 7
+
+    def test_across_month_boundary(self, window):
+        assert days_between("2025-01-28 00:00", "2025-02-03 00:00") == 6
+
+    def test_across_year_boundary(self, window):
+        assert days_between("2024-12-25 00:00", "2025-01-05 00:00") == 11
+
+    def test_known_span_73_days(self, window):
+        assert days_between("2025-01-01 08:00", "2025-03-15 08:00") == 73
+
+    def test_large_span_multiple_years(self, window):
+        assert days_between("2020-01-01 00:00", "2025-01-01 00:00") == 1827  # includes 2020, 2024 leap years
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 2. Zero difference
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestZeroDifference:
+
+    def test_same_datetime_is_zero(self, window):
+        assert days_between("2025-06-15 09:30", "2025-06-15 09:30") == 0
+
+    def test_same_date_different_time_is_zero(self, window):
+        """Times differ but not by a full day — result must be 0, not 1."""
+        assert days_between("2025-06-15 08:00", "2025-06-15 23:59") == 0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 3. Negative difference (end before start)
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestNegativeDifference:
+
+    def test_end_before_start_is_negative(self, window):
+        assert days_between("2025-03-01 00:00", "2025-01-01 00:00") == -59
+
+    def test_one_day_negative(self):
+        assert days_between("2025-01-02 00:00", "2025-01-01 00:00") == -1
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 4. Leap year handling
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestLeapYear:
+
+    def test_span_across_feb29_in_leap_year(self, window):
+        """2024 is a leap year — Feb has 29 days."""
+        assert days_between("2024-02-28 00:00", "2024-03-01 00:00") == 2
+
+    def test_span_across_feb_in_non_leap_year(self, window):
+        """2025 is not a leap year — Feb has 28 days."""
+        assert days_between("2025-02-28 00:00", "2025-03-01 00:00") == 1
+
+    def test_full_leap_year(self, window):
+        assert days_between("2024-01-01 00:00", "2025-01-01 00:00") == 366
+
+    def test_full_non_leap_year(self):
+        assert days_between("2025-01-01 00:00", "2026-01-01 00:00") == 365
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 5. Time-of-day truncation behaviour
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestTimeOfDayTruncation:
+    """
+    .days truncates toward zero — it does NOT round.
+    23h 59m difference → 0 days.
+    24h 01m difference → 1 day.
+    """
+
+    def test_23h59m_is_zero_days(self, window):
+        assert days_between("2025-01-01 00:00", "2025-01-01 23:59") == 0
+
+    def test_24h01m_is_one_day(self, window):
+        assert days_between("2025-01-01 00:00", "2025-01-02 00:01") == 1
+
+    def test_morning_to_next_morning_is_one_day(self, window):
+        assert days_between("2025-04-01 08:00", "2025-04-02 08:00") == 1
+
+    def test_late_to_early_next_day_is_zero(self):
+        """Start at 22:00, end at 06:00 next day — less than 24 h → 0 days."""
+        assert days_between("2025-04-01 22:00", "2025-04-02 06:00") == 0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 6. Invalid / malformed input
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestInvalidInput:
+
+    def test_empty_start_returns_none(self, window):
+        assert days_between("", "2025-01-01 00:00") is None
+
+    def test_empty_end_returns_none(self, window):
+        assert days_between("2025-01-01 00:00", "") is None
+
+    def test_both_empty_returns_none(self, window):
+        assert days_between("", "") is None
+
+    def test_none_start_returns_none(self, window):
+        assert days_between(None, "2025-01-01 00:00") is None
+
+    def test_none_end_returns_none(self, window):
+        assert days_between("2025-01-01 00:00", None) is None
+
+    def test_wrong_format_returns_none(self, window):
+        """DD/MM/YYYY is not the expected mask."""
+        assert days_between("01/01/2025", "02/01/2025") is None
+
+    def test_date_only_no_time_returns_none(self, window):
+        """Missing HH:mm component does not match the mask."""
+        assert days_between("2025-01-01", "2025-01-02") is None
+
+    def test_invalid_month_returns_none(self, window):
+        assert days_between("2025-13-01 00:00", "2025-01-01 00:00") is None
+
+    def test_invalid_day_returns_none(self, window):
+        assert days_between("2025-01-32 00:00", "2025-02-01 00:00") is None
+
+    def test_non_string_integer_returns_none(self, window):
+        assert days_between(20250101, "2025-01-02 00:00") is None
+
+    def test_arbitrary_string_returns_none(self, window):
+        assert days_between("not a date", "also not a date") is None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 7. Symmetry property
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestSymmetry:
+    """days_between(a, b) == -days_between(b, a) for any valid pair if they specify the same time."""
+
+    @pytest.mark.parametrize("start, end", [
+        ("2025-01-01 00:00", "2025-06-30 00:00"),
+        ("2024-02-29 08:00", "2024-03-15 08:00"),
+        ("2020-01-01 23:59", "2030-12-31 23:59"),
+    ])
+    def test_reverse_is_ok(self, start, end, window):
+        assert days_between(start, end) == -days_between(end, start)
+
+    @pytest.mark.parametrize("start, end", [
+        ("2025-01-01 01:00", "2025-06-30 00:00"),
+        ("2024-02-29 08:00", "2024-03-15 12:00"),
+        ("2020-01-01 01:01", "2030-12-31 23:59"),
+    ])
+    def test_reverse_is_not_ok(self, start, end, window):
+        assert days_between(start, end) != -days_between(end, start)

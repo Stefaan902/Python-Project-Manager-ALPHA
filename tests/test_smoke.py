@@ -46,7 +46,7 @@ class TestModelInstantiation:
         from maincode import ActivityTableModel
         model = ActivityTableModel()
         assert model.rowCount() == 0
-        assert model.columnCount() == 11  # 11 defined headers
+        assert model.columnCount() == 13  # 13 defined headers
 
     def test_resource_model_instantiates(self, app):
         from maincode import ActivityTableModel, ResourceTableModel
