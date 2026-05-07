@@ -108,6 +108,7 @@ class BaseTableModel(QAbstractTableModel):
 
         row    = index.row()
         column = index.column()
+
         self._data[row][column] = value
         self.dataChanged.emit(index, index, [role])
         self._on_cell_changed(row, column)
@@ -276,16 +277,18 @@ class ActivityTableModel(BaseTableModel):
 
     Column layout:
       [0]  UUID           hidden; used internally as stable activity ID
-      [1]  Name
-      [2]  Predecessor    semicolon-separated UUIDs of predecessor activities
-      [3]  Start Date     stored as QDateTime
-      [4]  End Date       stored as formatted string "yyyy-MM-dd HH:mm"
-      [5]  Duration       string representation of number of days
-      [6]  Successors     auto-populated by calculate_cpm(); read-only
-      [7]  Early Start    float; written by calculate_cpm()
-      [8]  Early Finish   float; written by calculate_cpm()
-      [9]  Late Start     float; written by calculate_cpm()
-      [10] Late Finish    float; written by calculate_cpm()
+                            activity ID is never editable by the user, so it is safe to use as a key in
+                            wbs ID
+      [3]  Name
+      [4]  Predecessor    semicolon-separated UUIDs of predecessor activities
+      [5]  Start Date     stored as QDateTime
+      [6]  End Date       stored as formatted string "yyyy-MM-dd HH:mm"
+      [7]  Duration       string representation of number of days
+      [8]  Successors     auto-populated by calculate_cpm(); read-only
+      [9]  Early Start    float; written by calculate_cpm()
+      [10]  Early Finish   float; written by calculate_cpm()
+      [11]  Late Start     float; written by calculate_cpm()
+      [12] Late Finish    float; written by calculate_cpm()
     """
 
     # Column index constants — use these everywhere instead of bare integers
@@ -438,7 +441,7 @@ class ResourceTableModel(BaseTableModel):
             'Assigned Activity',
         ]
 
-    # ── display / edit formatting ─────────────────────────────────────────────
+    # ── display / edit formatting, called from the data function in the BaseTableModel ───────
 
     def _format_display(self, row: int, column: int, value) -> str:
         if column == self.COL_NAME:
@@ -579,11 +582,11 @@ class RiskTableModel(BaseTableModel):
         return [
             [
                 activity[0],   # ID
-                activity[1],   # Name of Activity
+                activity[3],   # Name of Activity
                 "",            # Category — default blank
                 1,             # Probability — default 1
                 1,             # Impact — default 1
-                1,             # Rating = 1 × 1
+                1,             # Rating = probability × impact = 1 x 1 = 1  
             ]
             for activity in self.activity_model._data
         ]
@@ -777,13 +780,16 @@ class IntegrationTableModel(QAbstractTableModel):
         return None
 
     def flags(self, index):
+        # Make all cells non-editable but selectable
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
     def data(self, index, role=Qt.DisplayRole):
         if not index.isValid() or role != Qt.DisplayRole:
             return None
+        
         if not self.activity_model or not hasattr(self.activity_model, '_data'):
             return None
+        
         if index.row() >= len(self.activity_model._data):
             return None
 
@@ -794,10 +800,10 @@ class IntegrationTableModel(QAbstractTableModel):
         # Columns sourced directly from ActivityTableModel
         _direct = {
             0: (0,),   # UUID
-            1: (1,),   # Name
-            2: (5,),   # Duration
-            3: (3,),   # Start Date
-            4: (4,),   # End Date
+            1: (3,),   # Name
+            2: (7,),   # Duration
+            3: (5,),   # Start Date
+            4: (6,),   # End Date
         }
         if col in _direct:
             src_col = _direct[col][0]
@@ -830,8 +836,9 @@ class IntegrationTableModel(QAbstractTableModel):
     def refresh_relationships(self) -> None:
         """Rebuild the relationships dict from all underlying models."""
         self.beginResetModel()
-        self.relationships = {}
+        self.relationships = {}     # Clear existing relationships
 
+        # Initialize relationships for each activity
         if self.activity_model and hasattr(self.activity_model, '_data'):
             for activity in self.activity_model._data:
                 if activity:
@@ -844,9 +851,9 @@ class IntegrationTableModel(QAbstractTableModel):
         # Mirror risk→activity assignments already stored in risk_model col 1
         if self.risk_model and hasattr(self.risk_model, '_data'):
             for risk in self.risk_model._data:
-                if risk and len(risk) > 1 and risk[1]:
-                    activity_id = risk[1]
+                if risk and len(risk) > 1 and risk[1]:  # If risk has an assigned activity
                     risk_id     = risk[0]
+                    activity_id = risk[1]
                     if activity_id in self.relationships:
                         self.relationships[activity_id]["risks"].append(risk_id)
 

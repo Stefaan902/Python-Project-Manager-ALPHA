@@ -28,7 +28,7 @@ Predecessor references use the UUID stored in column 0, NOT row numbers.
 """
 
 import pytest
-from maincode import days_between
+from project_manager import days_between
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,7 +77,7 @@ def _cpm(window):
 @pytest.fixture()
 def window(app, qtbot):
     """Fresh ActivityTableApp for each test, never shown on screen."""
-    from maincode import ActivityTableApp
+    from project_manager import ActivityTableApp
     w = ActivityTableApp()
     qtbot.addWidget(w)
     return w

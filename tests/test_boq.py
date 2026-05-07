@@ -30,7 +30,7 @@ import pytest
 
 def _make_model(app):
     """Return a fresh BillOfQuantityTableModel with one empty row."""
-    from maincode import BillOfQuantityTableModel
+    from project_manager import BillOfQuantityTableModel
     model = BillOfQuantityTableModel()
     # Inject one blank row directly — bypasses beginInsertRows signals
     model._data = [["", "", "", "", "", "", "", "", "", ""]]
@@ -211,7 +211,7 @@ class TestMultipleRows:
 
     def test_recalculate_does_not_affect_other_rows(self, app):
         """Recalculating row 0 must leave row 1 untouched."""
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         model = BillOfQuantityTableModel()
         model._data = [
             ["", "", "", "2", "3", "", "", "10", "", ""],
@@ -228,7 +228,7 @@ class TestMultipleRows:
 
     def test_recalculate_each_row_independently(self, app):
         """Each row can be recalculated independently."""
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         model = BillOfQuantityTableModel()
         model._data = [
             ["", "", "", "2", "3", "", "", "10", "", ""],
@@ -252,7 +252,7 @@ class TestReadOnlyColumns:
 
     def test_sum_column_is_read_only(self, app):
         """Column 6 (Sum) must not be editable via flags()."""
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         from PyQt5.QtCore import Qt
         model = BillOfQuantityTableModel()
         model._data = [[""] * 10]
@@ -262,7 +262,7 @@ class TestReadOnlyColumns:
 
     def test_total_cost_column_is_read_only(self, app):
         """Column 8 (Total Cost) must not be editable via flags()."""
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         from PyQt5.QtCore import Qt
         model = BillOfQuantityTableModel()
         model._data = [[""] * 10]
@@ -272,7 +272,7 @@ class TestReadOnlyColumns:
 
     def test_dimension_column_is_editable(self, app):
         """Dimension columns (3, 4, 5) must be editable."""
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         from PyQt5.QtCore import Qt
         model = BillOfQuantityTableModel()
         model._data = [[""] * 10]

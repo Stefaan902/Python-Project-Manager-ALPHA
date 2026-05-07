@@ -68,7 +68,7 @@ def _make_activity_row(uid, name, pred, duration, actID="", wbsID=""):
 
 @pytest.fixture()
 def window(app, qtbot):
-    from maincode import ActivityTableApp
+    from project_manager import ActivityTableApp
     w = ActivityTableApp()
     qtbot.addWidget(w)
     return w

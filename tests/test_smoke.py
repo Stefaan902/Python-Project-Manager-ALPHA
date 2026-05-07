@@ -14,60 +14,60 @@ import pytest
 class TestImport:
     """The module and its classes must be importable."""
 
-    def test_import_maincode(self):
-        """maincode.py must be importable without side-effects."""
-        import maincode  # noqa: F401
+    def test_import_project_manager(self):
+        """project_manager.py must be importable without side-effects."""
+        import project_manager  # noqa: F401
 
     def test_import_activity_table_model(self):
-        from maincode import ActivityTableModel  # noqa: F401
+        from project_manager import ActivityTableModel  # noqa: F401
 
     def test_import_resource_table_model(self):
-        from maincode import ResourceTableModel  # noqa: F401
+        from project_manager import ResourceTableModel  # noqa: F401
 
     def test_import_risk_table_model(self):
-        from maincode import RiskTableModel  # noqa: F401
+        from project_manager import RiskTableModel  # noqa: F401
 
     def test_import_bill_of_quantity_model(self):
-        from maincode import BillOfQuantityTableModel  # noqa: F401
+        from project_manager import BillOfQuantityTableModel  # noqa: F401
 
     def test_import_activity_table_app(self):
-        from maincode import ActivityTableApp  # noqa: F401
+        from project_manager import ActivityTableApp  # noqa: F401
 
 
 class TestModelInstantiation:
     """Individual models must be constructable without a full main window."""
 
     def test_activity_model_instantiates(self, app):
-        from maincode import ActivityTableModel
+        from project_manager import ActivityTableModel
         model = ActivityTableModel()
         assert model is not None
 
     def test_activity_model_starts_empty(self, app):
-        from maincode import ActivityTableModel
+        from project_manager import ActivityTableModel
         model = ActivityTableModel()
         assert model.rowCount() == 0
         assert model.columnCount() == 13  # 13 defined headers
 
     def test_resource_model_instantiates(self, app):
-        from maincode import ActivityTableModel, ResourceTableModel
+        from project_manager import ActivityTableModel, ResourceTableModel
         activity_model = ActivityTableModel()
         model = ResourceTableModel(activity_model)
         assert model is not None
 
     def test_resource_model_starts_empty(self, app):
-        from maincode import ActivityTableModel, ResourceTableModel
+        from project_manager import ActivityTableModel, ResourceTableModel
         activity_model = ActivityTableModel()
         model = ResourceTableModel(activity_model)
         assert model.rowCount() == 0
         assert model.columnCount() == 8  # 8 defined headers
 
     def test_boq_model_instantiates(self, app):
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         model = BillOfQuantityTableModel()
         assert model is not None
 
     def test_boq_model_starts_empty(self, app):
-        from maincode import BillOfQuantityTableModel
+        from project_manager import BillOfQuantityTableModel
         model = BillOfQuantityTableModel()
         assert model.rowCount() == 0
         assert model.columnCount() == 10  # 10 defined headers

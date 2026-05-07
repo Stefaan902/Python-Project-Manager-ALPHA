@@ -68,7 +68,7 @@ def _wbs(model, row):
 
 @pytest.fixture()
 def model(app):
-    from maincode import ActivityTableModel
+    from project_manager import ActivityTableModel
     return ActivityTableModel()
 
 
@@ -541,7 +541,7 @@ class TestRecalcAfterLoad:
 
     @pytest.fixture()
     def window(self, app, qtbot):
-        from maincode import ActivityTableApp
+        from project_manager import ActivityTableApp
         w = ActivityTableApp()
         qtbot.addWidget(w)
         return w

@@ -43,7 +43,7 @@ def app(qapp):
 @pytest.fixture()
 def activity_model(app):
     """Return a fresh, empty ActivityTableModel."""
-    from maincode import ActivityTableModel
+    from project_manager import ActivityTableModel
     return ActivityTableModel()
 
 
@@ -53,7 +53,7 @@ def fresh_window(app, qtbot):
     Instantiate the full ActivityTableApp main window without displaying it.
     qtbot registers the widget so it is properly cleaned up after each test.
     """
-    from maincode import ActivityTableApp
+    from project_manager import ActivityTableApp
     window = ActivityTableApp()
     qtbot.addWidget(window)
     return window
