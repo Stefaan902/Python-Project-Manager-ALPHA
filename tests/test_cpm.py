@@ -28,7 +28,7 @@ Predecessor references use the UUID stored in column 0, NOT row numbers.
 """
 
 import pytest
-from project_manager import days_between
+from models import days_between
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -496,7 +496,7 @@ class TestSuccessorWriteback:
         assert "C" in successors
 
 """
-test_days_between.py — Unit tests for the days_between() utility function.
+Unit tests for the days_between() utility function.
 
 Paste the implementation under test at the top of this file, or import it
 from wherever you define it in your project, e.g.:

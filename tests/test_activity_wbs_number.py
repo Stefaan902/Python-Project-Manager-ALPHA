@@ -26,6 +26,7 @@ Post-patch column layout (13 columns):
 """
 
 import pytest
+from PyQt5.QtCore import QDateTime
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -555,9 +556,9 @@ class TestRecalcAfterLoad:
         am = window.activity_model
         am.beginResetModel()
         am._data = [
-            ["ACT-1", "STALE", "STALE", "Design", "", "", "", "3", "", "", "", "", ""],
-            ["ACT-2", "STALE", "STALE", "Build",  "", "", "", "5", "", "", "", "", ""],
-            ["ACT-3", "STALE", "STALE", "Test",   "", "", "", "2", "", "", "", "", ""],
+            ["ACT-1", "STALE", "STALE", "Design", "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "3", "", "", "", "", ""],
+            ["ACT-2", "STALE", "STALE", "Build",  "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "5", "", "", "", "", ""],
+            ["ACT-3", "STALE", "STALE", "Test",   "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "2", "", "", "", "", ""],
         ]
         am.indentation_levels = [0, 0, 0]
         am.expanded_states    = [True, True, True]
@@ -580,10 +581,10 @@ class TestRecalcAfterLoad:
         am = window.activity_model
         am.beginResetModel()
         am._data = [
-            ["P1", "STALE", "STALE", "Phase",   "", "", "", "0", "", "", "", "", ""],
-            ["C1", "STALE", "STALE", "Dig",     "", "", "", "3", "", "", "", "", ""],
-            ["C2", "STALE", "STALE", "Pour",    "", "", "", "2", "", "", "", "", ""],
-            ["T1", "STALE", "STALE", "Inspect", "", "", "", "1", "", "", "", "", ""],
+            ["P1", "STALE", "STALE", "Phase",   "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "0", "", "", "", "", ""],
+            ["C1", "STALE", "STALE", "Dig",     "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "3", "", "", "", "", ""],
+            ["C2", "STALE", "STALE", "Pour",    "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "2", "", "", "", "", ""],
+            ["T1", "STALE", "STALE", "Inspect", "", QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", "1", "", "", "", "", ""],
         ]
         am.indentation_levels = [0, 1, 1, 0]
         am.expanded_states    = [True, True, True, True]

@@ -27,6 +27,7 @@ What is verified
 import json
 import os
 import pytest
+from PyQt5.QtCore import QDateTime
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,7 @@ def _patch_dialogs(monkeypatch, save_path):
 def _make_activity_row(uid, name, pred, duration, actID="", wbsID=""):
     """Return a minimal 13-element data row for ActivityTableModel."""
     """[0]UUID [1]ActivityNo [2]WBS_ID [3]Name [4]Predecessor [5]StartDate [6]EndDate [7]Duration [8]Successors [9]ES [10]EF [11]LS [12]LF"""
-    return [uid, actID, wbsID, name, pred, "", "", duration, "", "", "", "", ""]
+    return [uid, actID, wbsID, name, pred, QDateTime.fromString("2024-01-01 08:00", "yyyy-MM-dd HH:mm"), "", duration, "", "", "", "", ""]
 
 
 # ---------------------------------------------------------------------------
