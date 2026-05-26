@@ -31,10 +31,28 @@ Replace the five class definitions with a single import:
 """
 
 import uuid
+from datetime import datetime, timedelta
 
 from PyQt5.QtCore import Qt, QDateTime, QAbstractTableModel, QModelIndex
 from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtGui import QBrush, QColor
+from sqlalchemy import column
 
+
+"""
+    Color palette for reference:
+    ┌─────────────────────────────────┐
+    │ Primary: #d9c987                │
+    │ Secondary:                      │
+    │ Accent:                         │
+    │ Background:                     │
+    │    parent: #4e9745              │
+    │    child: #d9c987               │
+    │ Text:                           │
+    └─────────────────────────────────┘
+    #4e9745, #75a455, #97b165, #b9bd76, #d9c987
+
+"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BaseTableModel
@@ -75,6 +93,11 @@ class BaseTableModel(QAbstractTableModel):
         self.expanded_states:    list[bool] = []
         self.parent_child_map:   dict[int, list[int]] = {}
 
+        # default column index for datetime values; only relevant for ActivityTableModel 
+        # but set here for easy access in the base class methods that handle datetime formatting and editing
+        # TO DO: look for a better way to handle this than hardcoding a column index in the base class
+        self.datetime_column = 5  
+
     # ── mandatory Qt overrides ────────────────────────────────────────────────
 
     def rowCount(self, parent=None) -> int:
@@ -96,6 +119,8 @@ class BaseTableModel(QAbstractTableModel):
         column = index.column()
         value  = self._data[row][column]
 
+        if role == Qt.BackgroundRole:
+            return self._format_background(row, column, value)
         if role == Qt.DisplayRole:
             return self._format_display(row, column, value)
         if role == Qt.EditRole:
@@ -109,7 +134,21 @@ class BaseTableModel(QAbstractTableModel):
         row    = index.row()
         column = index.column()
 
-        self._data[row][column] = value
+        if column == self.datetime_column and isinstance(value, QDateTime):
+            self._data[row][column] = value
+        elif column == self.datetime_column and not isinstance(value, QDateTime):
+            try:
+                dt = QDateTime.fromString(value, "yyyy-MM-dd HH:mm")
+                if dt.isValid():
+                    self._data[row][column] = dt  # Store as QDateTime as the string can be parsed successfully
+                else:
+                    return False
+            except Exception:
+                return False
+        else:
+            self._data[row][column] = value
+
+
         self.dataChanged.emit(index, index, [role])
         self._on_cell_changed(row, column)
         return True
@@ -200,6 +239,14 @@ class BaseTableModel(QAbstractTableModel):
         """
         return {0}
 
+    def _format_background(self, row: int, column: int, value) -> QBrush:
+        """
+        Convert a cell value to its background color string.
+        Override to add custom background colors.
+        Default: light "".
+        """
+        return QBrush(QColor("#d9c987"))
+
     def _format_display(self, row: int, column: int, value) -> str:
         """
         Convert a cell value to its display string.
@@ -207,7 +254,7 @@ class BaseTableModel(QAbstractTableModel):
         Default: str(value).
         """
         return str(value) if value is not None else ""
-
+    
     def _format_edit(self, row: int, column: int, value) -> str:
         """
         Convert a cell value for an editor widget.
@@ -277,8 +324,9 @@ class ActivityTableModel(BaseTableModel):
 
     Column layout:
       [0]  UUID           hidden; used internally as stable activity ID
-                            activity ID is never editable by the user, so it is safe to use as a key in
-                            wbs ID
+      [1]  Activity No   ← computed by recalculate_activity_numbers()
+                            activity ID is never editable by the user, so it is safe to use as a key
+      [2]  WBS ID        ← computed by recalculate_wbs_ids()      
       [3]  Name
       [4]  Predecessor    semicolon-separated UUIDs of predecessor activities
       [5]  Start Date     stored as QDateTime
@@ -286,34 +334,43 @@ class ActivityTableModel(BaseTableModel):
       [7]  Duration       string representation of number of days
       [8]  Successors     auto-populated by calculate_cpm(); read-only
       [9]  Early Start    float; written by calculate_cpm()
-      [10]  Early Finish   float; written by calculate_cpm()
-      [11]  Late Start     float; written by calculate_cpm()
+      [10] Early Finish   float; written by calculate_cpm()
+      [11] Late Start     float; written by calculate_cpm()
       [12] Late Finish    float; written by calculate_cpm()
     """
 
     # Column index constants — use these everywhere instead of bare integers
     # so that adding/renaming columns in one place is sufficient.
     COL_UUID      = 0
-    COL_NAME      = 1
-    COL_PRED      = 2
-    COL_START     = 3
-    COL_END       = 4
-    COL_DUR       = 5
-    COL_SUCC      = 6
-    COL_ES        = 7
-    COL_EF        = 8
-    COL_LS        = 9
-    COL_LF        = 10
+    COL_ACT_NB    = 1
+    COL_WBS_ID    = 2
+    COL_NAME      = 3    
+    COL_PRED      = 4
+    COL_START     = 5
+    COL_END       = 6
+    COL_DUR       = 7
+    COL_SUCC      = 8
+    COL_ES        = 9
+    COL_EF        = 10
+    COL_LS        = 11
+    COL_LF        = 12
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.headers = [
-            'ID', 'Name', 'Predecessor', 'Start Date', 'End Date', 'Duration',
+            'ID', 'Activity No', 'WBS ID', 'Name', 'Predecessor', 'Start Date', 'End Date', 'Duration',
             'Successors', 'Early Start', 'Early Finish', 'Late Start', 'Late Finish',
         ]
 
     # ── display / edit formatting ─────────────────────────────────────────────
-
+    
+    def _format_background(self, row: int, column: int, value) -> QBrush:
+        if row in self.parent_child_map:
+            # Light blue background for summary tasks
+            return QBrush(QColor("#4e9745"))
+        
+        return QBrush(QColor("#b9bd76"))
+    
     def _format_display(self, row: int, column: int, value) -> str:
         if column == self.COL_NAME:
             indent = self.indentation_levels[row] if row < len(self.indentation_levels) else 0
@@ -354,52 +411,144 @@ class ActivityTableModel(BaseTableModel):
 
     # ── business logic ────────────────────────────────────────────────────────
 
+    def _update_parent_from_children(self, parent_row):
+        children = self.parent_child_map.get(parent_row, [])
+        if not children:
+            return
+        
+        child_starts = []
+        child_ends = []
+
+        for child_row in children:
+            child_data = self._data[child_row]
+
+            # Get child's start date (assumed stored as a QDateTime object in column 5)
+            start = child_data[5]
+            child_starts.append(start)
+
+            # End date is stored as a string in column 6; convert it back to QDateTime for comparison
+            end = QDateTime.fromString(child_data[6], "yyyy-MM-dd HH:mm")
+            child_ends.append(end)
+
+        if child_starts and child_ends:
+            new_start = min(child_starts)
+            new_end = max(child_ends)
+            new_duration = days_between(new_start.toString("yyyy-MM-dd HH:mm"), new_end.toString("yyyy-MM-dd HH:mm"))
+
+            # Update parent's start date (column 3), end date (column 4) and duration (column 5)
+            self._data[parent_row][5] = new_start
+            self._data[parent_row][6] = new_end.toString("yyyy-MM-dd HH:mm")
+            self._data[parent_row][7] = new_duration
+        
+        return
+
     def recalc_parent_activities(self) -> None:
         """
         For every parent row in parent_child_map:
           • Start Date = min(child start dates)
           • End Date   = max(child end dates)
-          • Duration   = sum(child durations)
+          • Duration   = difference between Start and End in days
         """
-        for parent_row, children in self.parent_child_map.items():
+        # make sure that the childeren are processed before the parent, so that the parent's dates are based on the updated child dates
+        for parent_row, children in sorted(self.parent_child_map.items(), key=lambda x: x[0], reverse=True): 
             if not children:
                 continue
+            
+            # Recalculate THIS parent based on its children
+            self._update_parent_from_children(parent_row)
 
-            child_starts = []
-            child_ends   = []
-            total_dur    = 0.0
+            # Emit a dataChanged signal so the view refreshes the parent's row
+            self.dataChanged.emit(
+                self.index(parent_row, self.COL_START),
+                self.index(parent_row, self.COL_DUR),
+                [Qt.DisplayRole],
+            )
+    
+    def recalculate_activity_numbers(self):
+        """
+        Assign a sequential Activity Number (column 1) to every row.
+        The number is simply the 1-based position in the visible list,
+        matching what the user sees in the table.
+        Also triggers WBS ID recalculation.
+        """
+        for row in range(len(self._data)):
+            self._data[row][1] = str(row + 1)
+        self.recalculate_wbs_ids()
+        if self._data:
+            top = self.index(0, 1)
+            bottom = self.index(len(self._data) - 1, 2)
+            self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
 
+    def recalculate_wbs_ids(self):
+        """
+        Derive a dotted WBS ID (column 2) for every row from the
+        parent_child_map and indentation_levels.
+
+        Algorithm:
+        - Top-level rows (indentation == 0, no parent) get a single
+            counter: 1, 2, 3, …
+        - Each time a row becomes a child its counter resets within
+            its parent scope: parent "2" → children "2.1", "2.2", …
+        - Deeper nesting appends another segment: "2.1.1", "2.1.2", …
+
+        The implementation walks rows top-to-bottom, which is the same
+        order they appear in the table, so counters always reflect
+        display order.
+        """
+        n = len(self._data)
+        if n == 0:
+            return
+
+        # Build a child→parent lookup for fast traversal
+        child_to_parent = {}
+        for parent_row, children in self.parent_child_map.items():
             for child_row in children:
-                child = self._data[child_row]
+                child_to_parent[child_row] = parent_row
 
-                start = child[self.COL_START]
-                if isinstance(start, QDateTime):
-                    child_starts.append(start)
+        # sibling_counter[row] = how many siblings at the same parent
+        # have already been numbered before this row.
+        # We track per-parent counters as we walk top-to-bottom.
+        parent_child_counter = {}   # parent_row → next child counter
 
-                end = QDateTime.fromString(
-                    str(child[self.COL_END]), "yyyy-MM-dd HH:mm"
-                )
-                if end.isValid():
-                    child_ends.append(end)
+        wbs_ids = [""] * n
+        topLevelCounter = 0
+        for row in range(n):
+            if row in child_to_parent:
+                parent_row = child_to_parent[row]
+                # Increment this parent's child counter
+                count = parent_child_counter.get(parent_row, 0) + 1
+                parent_child_counter[parent_row] = count
+                parent_wbs = wbs_ids[parent_row]
+                wbs_ids[row] = f"{parent_wbs}.{count}" if parent_wbs else str(count)
+            else:
+                # Top-level row — increment the top-level counter and assign that value
+                topLevelCounter += 1
+                wbs_ids[row] = str(topLevelCounter)
 
-                try:
-                    total_dur += float(child[self.COL_DUR])
-                except (ValueError, TypeError):
-                    pass
+        for row in range(n):
+            self._data[row][2] = wbs_ids[row]
+            
+    def get_parent_row(self, child_row):
+        for parent_row, children in self.parent_child_map.items():
+            if child_row in children:
+                return parent_row
+        return None
 
-            if child_starts and child_ends:
-                self._data[parent_row][self.COL_START] = min(child_starts)
-                self._data[parent_row][self.COL_END]   = max(child_ends).toString(
-                    "yyyy-MM-dd HH:mm"
-                )
-                self._data[parent_row][self.COL_DUR]   = total_dur
+    def recalc_ancestors(self, start_row):
+        current = start_row
+        while True:
+            parent = self.get_parent_row(current)
+            if parent is None:
+                break
 
-                self.dataChanged.emit(
-                    self.index(parent_row, self.COL_START),
-                    self.index(parent_row, self.COL_DUR),
-                    [Qt.DisplayRole],
-                )
+            # Recalculate THIS parent based on its children
+            self._update_parent_from_children(parent)
 
+            top = self.index(parent, 5)
+            bottom = self.index(parent, 7)
+            self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
+
+            current = parent
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ResourceTableModel
@@ -967,3 +1116,12 @@ class IntegrationTableModel(QAbstractTableModel):
     def _on_source_change(self, *_) -> None:
         self.refresh_relationships()
         self.layoutChanged.emit()
+
+
+def days_between(start: str, end: str) -> int | None:
+    FMT = "%Y-%m-%d %H:%M"
+
+    try:
+        return (datetime.strptime(end, FMT) - datetime.strptime(start, FMT)).days
+    except (ValueError, TypeError):
+        return None
