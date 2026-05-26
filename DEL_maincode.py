@@ -81,6 +81,15 @@ class ActivityTableModel(QAbstractTableModel):
         if role == Qt.EditRole:
             if column == self.datetime_column and isinstance(value, QDateTime):
                 self._data[row][column] = value
+            elif column == self.datetime_column and not isinstance(value, QDateTime):
+                try:
+                    dt = QDateTime.fromString(value, "yyyy-MM-dd HH:mm")
+                    if dt.isValid():
+                        self._data[row][column] = dt  # Store as QDateTime as the string can be parsed successfully
+                    else:
+                        return False
+                except Exception:
+                    return False
             else:
                 self._data[row][column] = value
             self.dataChanged.emit(index, index, [role])
@@ -143,6 +152,38 @@ class ActivityTableModel(QAbstractTableModel):
         self._data = data
         self.endResetModel()
 
+    def _update_parent_from_children(self, parent_row):
+        children = self.parent_child_map.get(parent_row, [])
+        if not children:
+            return
+        
+        child_starts = []
+        child_ends = []
+
+        for child_row in children:
+            child_data = self._data[child_row]
+
+            # Get child's start date (assumed stored as a QDateTime object in column 5)
+            start = child_data[5]
+            child_starts.append(start)
+
+            # End date is stored as a string in column 6; convert it back to QDateTime for comparison
+            end = QDateTime.fromString(child_data[6], "yyyy-MM-dd HH:mm")
+            child_ends.append(end)
+
+        if child_starts and child_ends:
+            new_start = min(child_starts)
+            new_end = max(child_ends)
+            new_duration = days_between(new_start.toString("yyyy-MM-dd HH:mm"), new_end.toString("yyyy-MM-dd HH:mm"))
+
+            # Update parent's start date (column 3), end date (column 4) and duration (column 5)
+            self._data[parent_row][5] = new_start
+            self._data[parent_row][6] = new_end.toString("yyyy-MM-dd HH:mm")
+            self._data[parent_row][7] = new_duration
+        
+        return
+
+
     def recalc_parent_activities(self):
         """
         Recalculate parent's start date, end date, and duration based on its subactivities.
@@ -150,42 +191,20 @@ class ActivityTableModel(QAbstractTableModel):
         - Parent End Date = maximum of child end dates (column 4, stored as string formatted as "yyyy-MM-dd HH:mm")
         - Parent Duration (column 5) = sum of children durations
         """
-        from PyQt5.QtCore import QDateTime  # ensure QDateTime is imported
+        from PyQt5.QtCore import QDateTime  # TO DO, QDateTime is already imported
 
-        for parent_row, children in self.parent_child_map.items():
+        # make sure that the childeren are processed before the parent, so that the parent's dates are based on the updated child dates
+        for parent_row, children in sorted(self.parent_child_map.items(), key=lambda x: x[0], reverse=True): 
             if not children:
                 continue
-            child_starts = []
-            child_ends = []
-            total_duration = 0.0
 
-            for child_row in children:
-                child_data = self._data[child_row]
-                # Get child's start date (assumed stored as a QDateTime object in column 5)
-                start = child_data[5]
-                child_starts.append(start)
-                # End date is stored as a string in column 6; convert it back to QDateTime for comparison
-                end = QDateTime.fromString(child_data[6], "yyyy-MM-dd HH:mm")
-                child_ends.append(end)
+            # Recalculate THIS parent based on its children
+            self._update_parent_from_children(parent_row)
 
-                # Sum up durations from column 7 (if they can be converted to float, otherwise skip)
-                try:
-                    child_duration = float(child_data[7])
-                    total_duration += child_duration
-                except (ValueError, TypeError):
-                    pass
-
-            if child_starts and child_ends:
-                new_start = min(child_starts)
-                new_end = max(child_ends)
-                # Update parent's start date (column 3), end date (column 4) and duration (column 5)
-                self._data[parent_row][5] = new_start
-                self._data[parent_row][6] = new_end.toString("yyyy-MM-dd HH:mm")
-                self._data[parent_row][7] = total_duration
-                # Emit a dataChanged signal so the view refreshes the parent's row
-                top_index = self.index(parent_row, 5)
-                bottom_index = self.index(parent_row, 7)
-                self.dataChanged.emit(top_index, bottom_index, [Qt.DisplayRole])
+            # Emit a dataChanged signal so the view refreshes the parent's row
+            top_index = self.index(parent_row, 5)
+            bottom_index = self.index(parent_row, 7)
+            self.dataChanged.emit(top_index, bottom_index, [Qt.DisplayRole])
     
     def recalculate_activity_numbers(self):
         """
@@ -265,39 +284,11 @@ class ActivityTableModel(QAbstractTableModel):
                 break
 
             # Recalculate THIS parent based on its children
-            children = self.parent_child_map.get(parent, [])
-            if not children:
-                break
+            self._update_parent_from_children(parent)
 
-            child_starts = []
-            child_ends = []
-            total_duration = 0.0
-
-            for child in children:
-                start = self._data[child][5]          # Start Date
-                end_str = self._data[child][6]        # End Date
-                dur = self._data[child][7]            # Duration
-
-                if isinstance(start, QDateTime):
-                    child_starts.append(start)
-
-                end_dt = QDateTime.fromString(end_str, "yyyy-MM-dd HH:mm")
-                if end_dt.isValid():
-                    child_ends.append(end_dt)
-
-                try:
-                    total_duration += float(dur)
-                except (ValueError, TypeError):
-                    pass
-
-            if child_starts and child_ends:
-                self._data[parent][5] = min(child_starts)
-                self._data[parent][6] = max(child_ends).toString("yyyy-MM-dd HH:mm")
-                self._data[parent][7] = days_between(self._data[parent][5], self._data[parent][6])  # duration is not the sum of child durations, but the number of days between the earliest start and latest end
-
-                top = self.index(parent, 5)
-                bottom = self.index(parent, 7)
-                self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
+            top = self.index(parent, 5)
+            bottom = self.index(parent, 7)
+            self.dataChanged.emit(top, bottom, [Qt.DisplayRole])
 
             current = parent
 
